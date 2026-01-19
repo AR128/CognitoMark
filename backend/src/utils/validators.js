@@ -1,0 +1,39 @@
+import { z } from "zod";
+
+export const adminLoginSchema = z.object({
+  username: z.string().min(2),
+  password: z.string().min(4),
+});
+
+export const studentLoginSchema = z.object({
+  studentId: z.string().min(2),
+  name: z.string().min(2),
+});
+
+export const examCreateSchema = z.object({
+  title: z.string().min(3),
+});
+
+export const questionCreateSchema = z.object({
+  examId: z.number().int(),
+  text: z.string().min(3),
+  type: z.enum(["mcq", "text"]),
+  options: z.array(z.string()).optional(),
+});
+
+export const responseSchema = z.object({
+  questionId: z.number().int(),
+  answer: z.string().optional(),
+});
+
+export const clicksSchema = z.object({
+  totalClicks: z.number().int().nonnegative(),
+});
+
+export const stressSchema = z.object({
+  stressLevel: z.number().int().min(1).max(10),
+});
+
+export const submitSchema = z.object({
+  feedback: z.string().optional(),
+});
