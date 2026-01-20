@@ -4,10 +4,17 @@ import { createExam, deleteExam, fetchExams } from "../../api/adminApi";
 const Exams = () => {
   const [exams, setExams] = useState([]);
   const [title, setTitle] = useState("");
+  const [error, setError] = useState("");
+  const [deletingId, setDeletingId] = useState(null);
 
   const load = async () => {
-    const { data } = await fetchExams();
-    setExams(data);
+    try {
+      setError("");
+      const { data } = await fetchExams();
+      setExams(data);
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to load exams.");
+    }
   };
 
   useEffect(() => {
@@ -16,14 +23,30 @@ const Exams = () => {
 
   const handleCreate = async () => {
     if (!title.trim()) return;
-    await createExam({ title });
-    setTitle("");
-    load();
+    try {
+      setError("");
+      await createExam({ title });
+      setTitle("");
+      load();
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to create exam.");
+    }
   };
 
   const handleDelete = async (id) => {
-    await deleteExam(id);
-    load();
+    if (deletingId) return;
+    const confirmed = window.confirm("Delete this exam and all related data?");
+    if (!confirmed) return;
+    try {
+      setError("");
+      setDeletingId(id);
+      await deleteExam(id);
+      setExams((prev) => prev.filter((exam) => exam.id !== id));
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to delete exam.");
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -42,6 +65,7 @@ const Exams = () => {
       </div>
 
       <div className="card">
+        {error && <div className="alert error">{error}</div>}
         <table className="table">
           <thead>
             <tr>
@@ -56,7 +80,11 @@ const Exams = () => {
                 <td>{exam.title}</td>
                 <td>{exam.created_at}</td>
                 <td>
-                  <button className="btn danger" onClick={() => handleDelete(exam.id)}>
+                  <button
+                    className="btn danger"
+                    onClick={() => handleDelete(exam.id)}
+                    disabled={deletingId === exam.id}
+                  >
                     Delete
                   </button>
                 </td>

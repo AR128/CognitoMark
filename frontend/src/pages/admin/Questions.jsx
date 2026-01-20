@@ -11,16 +11,28 @@ const Questions = () => {
   const [selected, setSelected] = useState("");
   const [questions, setQuestions] = useState([]);
   const [form, setForm] = useState({ text: "", type: "mcq", options: "" });
+  const [error, setError] = useState("");
+  const [deletingId, setDeletingId] = useState(null);
 
   const loadExams = async () => {
-    const { data } = await fetchExams();
-    setExams(data);
+    try {
+      setError("");
+      const { data } = await fetchExams();
+      setExams(data);
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to load exams.");
+    }
   };
 
   const loadQuestions = async (examId) => {
     if (!examId) return;
-    const { data } = await fetchQuestions(examId);
-    setQuestions(data);
+    try {
+      setError("");
+      const { data } = await fetchQuestions(examId);
+      setQuestions(data);
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to load questions.");
+    }
   };
 
   useEffect(() => {
@@ -37,20 +49,36 @@ const Questions = () => {
       ? form.options.split(",").map((o) => o.trim()).filter(Boolean)
       : [];
 
-    await createQuestion({
-      examId: Number(selected),
-      text: form.text,
-      type: form.type,
-      options,
-    });
+    try {
+      setError("");
+      await createQuestion({
+        examId: Number(selected),
+        text: form.text,
+        type: form.type,
+        options,
+      });
 
-    setForm({ text: "", type: "mcq", options: "" });
-    loadQuestions(selected);
+      setForm({ text: "", type: "mcq", options: "" });
+      loadQuestions(selected);
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to create question.");
+    }
   };
 
   const handleDelete = async (id) => {
-    await deleteQuestion(id);
-    loadQuestions(selected);
+    if (deletingId) return;
+    const confirmed = window.confirm("Delete this question and its responses?");
+    if (!confirmed) return;
+    try {
+      setError("");
+      setDeletingId(id);
+      await deleteQuestion(id);
+      setQuestions((prev) => prev.filter((q) => q.id !== id));
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to delete question.");
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -99,6 +127,7 @@ const Questions = () => {
       </div>
 
       <div className="card">
+        {error && <div className="alert error">{error}</div>}
         <table className="table">
           <thead>
             <tr>
@@ -113,7 +142,11 @@ const Questions = () => {
                 <td>{q.text}</td>
                 <td>{q.type}</td>
                 <td>
-                  <button className="btn danger" onClick={() => handleDelete(q.id)}>
+                  <button
+                    className="btn danger"
+                    onClick={() => handleDelete(q.id)}
+                    disabled={deletingId === q.id}
+                  >
                     Delete
                   </button>
                 </td>
