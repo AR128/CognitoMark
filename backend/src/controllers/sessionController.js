@@ -95,9 +95,50 @@ export const submitExam = (req, res, next) => {
     const { sessionId } = req.params;
     const { feedback } = req.body;
 
+    const session = get("SELECT * FROM exam_sessions WHERE id = @id", {
+      id: sessionId,
+    });
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+    if (session.submitted_at) {
+      return res.status(400).json({ error: "Exam already submitted" });
+    }
+
+    const totalQuestionsRow = get(
+      "SELECT COUNT(*) AS total FROM questions WHERE exam_id = @exam_id",
+      { exam_id: session.exam_id }
+    );
+    if (!totalQuestionsRow?.total) {
+      return res
+        .status(400)
+        .json({ error: "Exam cannot be submitted without any questions" });
+    }
+
+    const answeredQuestionsRow = get(
+      `SELECT COUNT(*) AS total
+       FROM responses
+       WHERE session_id = @session_id
+         AND answer IS NOT NULL
+         AND TRIM(answer) <> ''`,
+      { session_id: sessionId }
+    );
+
+    if (answeredQuestionsRow.total < totalQuestionsRow.total) {
+      return res.status(400).json({
+        error: "Please answer all questions before submitting",
+        remaining: totalQuestionsRow.total - answeredQuestionsRow.total,
+      });
+    }
+
+    const normalizedFeedback =
+      typeof feedback === "string" && feedback.trim().length > 0
+        ? feedback.trim()
+        : null;
+
     run(
       "UPDATE exam_sessions SET submitted_at = CURRENT_TIMESTAMP, feedback = @feedback WHERE id = @id",
-      { id: sessionId, feedback: feedback || null }
+      { id: sessionId, feedback: normalizedFeedback }
     );
 
     getIo().emit("exam_submitted", {

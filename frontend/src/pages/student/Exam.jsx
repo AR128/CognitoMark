@@ -3,6 +3,16 @@ import { debounce } from "../../utils/debounce";
 import { storage } from "../../utils/storage";
 import { saveResponse, submitExam, updateClicks, updateStress } from "../../api/sessionApi";
 
+const hasAnswerValue = (value) => {
+  if (value === undefined || value === null) {
+    return false;
+  }
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  return true;
+};
+
 const StudentExam = () => {
   const session = storage.get("session");
   const exam = storage.get("exam");
@@ -13,6 +23,13 @@ const StudentExam = () => {
   const [stress, setStress] = useState(5);
   const [submitted, setSubmitted] = useState(false);
   const [status, setStatus] = useState("");
+
+  const unansweredQuestions = useMemo(
+    () => questions.filter((q) => !hasAnswerValue(answers[q.id])),
+    [questions, answers]
+  );
+
+  const canSubmit = !submitted && questions.length > 0 && unansweredQuestions.length === 0;
 
   useEffect(() => {
     if (!session) {
@@ -49,10 +66,31 @@ const StudentExam = () => {
   };
 
   const handleSubmit = async () => {
-    if (!session) return;
-    await submitExam(session.id, { feedback: "" });
-    setSubmitted(true);
-    setStatus("Submitted");
+    if (!session || submitted || !canSubmit) {
+      return;
+    }
+
+    try {
+      const preparedResponses = questions
+        .map((q) => ({ questionId: q.id, answer: answers[q.id] }))
+        .filter(({ answer }) => hasAnswerValue(answer));
+
+      if (preparedResponses.length) {
+        await Promise.all(
+          preparedResponses.map(({ questionId, answer }) =>
+            saveResponse(session.id, { questionId, answer })
+          )
+        );
+      }
+
+      await submitExam(session.id, { feedback: "" });
+      setSubmitted(true);
+      setStatus("Submitted");
+    } catch (error) {
+      const message =
+        error?.response?.data?.error || "Unable to submit exam. Please try again.";
+      setStatus(message);
+    }
   };
 
   if (!session) {
@@ -116,9 +154,19 @@ const StudentExam = () => {
       </div>
 
       <div className="card">
-        <button className="btn" onClick={handleSubmit} disabled={submitted}>
+        <button className="btn" onClick={handleSubmit} disabled={!canSubmit}>
           Submit Exam
         </button>
+        {!submitted && unansweredQuestions.length > 0 && (
+          <p style={{ marginTop: "0.5rem", fontSize: "0.9rem" }}>
+            Answer all questions to submit ({unansweredQuestions.length} remaining)
+          </p>
+        )}
+        {status && (
+          <p className="notice" style={{ marginTop: "0.5rem" }}>
+            {status}
+          </p>
+        )}
       </div>
     </div>
   );
