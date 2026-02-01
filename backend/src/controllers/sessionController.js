@@ -1,4 +1,4 @@
-import { get, run } from "../db/database.js";
+import { all, get, run } from "../db/database.js";
 import { getIo } from "../sockets/index.js";
 
 const VIOLATION_THRESHOLD = Number(process.env.VIOLATION_THRESHOLD || 3);
@@ -53,6 +53,21 @@ const countRecordedViolations = (sessionId) =>
        AND type IN (${VIOLATION_TYPES.map((t) => `'${t}'`).join(", ")})`,
     { session_id: sessionId }
   );
+
+const getLastClickWindowEnd = (sessionId) =>
+  get(
+    `SELECT window_end AS window_end
+     FROM click_timeseries
+     WHERE session_id = @session_id
+     ORDER BY window_end DESC
+     LIMIT 1`,
+    { session_id: sessionId }
+  );
+
+const isValidDate = (value) => {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime());
+};
 
 export const saveResponse = (req, res, next) => {
   try {
@@ -136,6 +151,101 @@ export const updateStress = (req, res, next) => {
     });
 
     return res.json({ success: true });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const logClickFrequency = (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const { windowStart, windowEnd, clickCount } = req.body;
+
+    const session = findSessionById(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+
+    if (session.submitted_at) {
+      return res.status(400).json({ error: "Exam already submitted" });
+    }
+
+    if (!isValidDate(windowStart) || !isValidDate(windowEnd)) {
+      return res.status(400).json({ error: "Invalid window timestamps" });
+    }
+
+    const startDate = new Date(windowStart);
+    const endDate = new Date(windowEnd);
+    if (endDate <= startDate) {
+      return res
+        .status(400)
+        .json({ error: "Window end must be after start" });
+    }
+
+    if (clickCount < 0) {
+      return res.status(400).json({ error: "Click count must be non-negative" });
+    }
+
+    const lastWindow = getLastClickWindowEnd(sessionId);
+    if (lastWindow?.window_end && new Date(lastWindow.window_end) > startDate) {
+      return res.status(400).json({ error: "Click windows must not overlap" });
+    }
+
+    run(
+      `INSERT INTO click_timeseries (session_id, window_start, window_end, click_count)
+       VALUES (@session_id, @window_start, @window_end, @click_count)`,
+      {
+        session_id: sessionId,
+        window_start: startDate.toISOString(),
+        window_end: endDate.toISOString(),
+        click_count: clickCount,
+      }
+    );
+
+    run(
+      "INSERT INTO telemetry_events (session_id, type, value) VALUES (@session_id, 'click_window', @value)",
+      {
+        session_id: sessionId,
+        value: JSON.stringify({ windowStart, windowEnd, clickCount }),
+      }
+    );
+
+    getIo().emit("click_window", {
+      sessionId: Number(sessionId),
+      windowStart: startDate.toISOString(),
+      windowEnd: endDate.toISOString(),
+      clickCount,
+    });
+
+    return res.json({ success: true });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const getClickSeries = (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+
+    const session = findSessionById(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+
+    const total = get(
+      "SELECT COUNT(*) AS total FROM click_timeseries WHERE session_id = @session_id",
+      { session_id: sessionId }
+    );
+
+    const items = all(
+      `SELECT window_start, window_end, click_count
+       FROM click_timeseries
+       WHERE session_id = @session_id
+       ORDER BY window_start ASC`,
+      { session_id: sessionId }
+    );
+
+    return res.json({ total: total?.total || 0, items });
   } catch (error) {
     return next(error);
   }

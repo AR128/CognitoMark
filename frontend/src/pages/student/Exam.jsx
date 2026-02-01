@@ -3,10 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { debounce } from "../../utils/debounce";
 import { storage } from "../../utils/storage";
 import {
+  logClickFrequency,
   logViolation,
   saveResponse,
   submitExam,
-  updateClicks,
   updateStress,
 } from "../../api/sessionApi";
 
@@ -29,6 +29,14 @@ const resolveViolationThreshold = () => {
 const VIOLATION_THRESHOLD = resolveViolationThreshold();
 const VIOLATION_WARNING = "Tab switching or minimizing is not allowed during the exam.";
 
+const resolveClickWindowMs = () => {
+  const rawValue = import.meta.env ? import.meta.env.VITE_CLICK_WINDOW_MS : undefined;
+  const configured = Number(rawValue);
+  return Number.isFinite(configured) && configured > 0 ? configured : 40000;
+};
+
+const CLICK_WINDOW_MS = resolveClickWindowMs();
+
 const StudentExam = () => {
   const [sessionData, setSessionData] = useState(() => storage.get("session"));
   const [exam, setExam] = useState(() => storage.get("exam"));
@@ -36,7 +44,6 @@ const StudentExam = () => {
   const [sessionId, setSessionId] = useState(() => localStorage.getItem("sessionId"));
 
   const [answers, setAnswers] = useState({});
-  const [clicks, setClicks] = useState(0);
   const [stress, setStress] = useState(5);
   const [submitted, setSubmitted] = useState(() => Boolean(storage.get("session")?.submitted_at));
   const [status, setStatus] = useState("");
@@ -46,6 +53,11 @@ const StudentExam = () => {
   const navigate = useNavigate();
   const redirectTimeoutRef = useRef(null);
   const enforcementActive = Boolean(sessionData?.id) && !submitted;
+  const clickWindowStartRef = useRef(null);
+  const clickCountRef = useRef(0);
+  const clickQueueRef = useRef([]);
+  const flushInProgressRef = useRef(false);
+  const clickTimerRef = useRef(null);
 
   useEffect(() => () => {
     if (redirectTimeoutRef.current) {
@@ -65,11 +77,59 @@ const StudentExam = () => {
     setQuestions([]);
     setSessionId(null);
     setAnswers({});
-    setClicks(0);
     setStress(5);
     setViolationCount(0);
     setViolationModal({ visible: false, message: "" });
   }, []);
+
+  const flushClickQueue = useCallback(async () => {
+    if (!sessionData?.id || flushInProgressRef.current) {
+      return;
+    }
+    flushInProgressRef.current = true;
+    try {
+      while (clickQueueRef.current.length > 0) {
+        const payload = clickQueueRef.current[0];
+        await logClickFrequency(sessionData.id, payload);
+        clickQueueRef.current.shift();
+      }
+    } finally {
+      flushInProgressRef.current = false;
+    }
+  }, [sessionData?.id]);
+
+  const queueClickWindow = useCallback(
+    async (windowStart, windowEnd, clickCount) => {
+      const payload = {
+        windowStart: windowStart.toISOString(),
+        windowEnd: windowEnd.toISOString(),
+        clickCount,
+      };
+      clickQueueRef.current.push(payload);
+      await flushClickQueue();
+      return clickQueueRef.current.length === 0;
+    },
+    [flushClickQueue]
+  );
+
+  const closeCurrentWindow = useCallback(
+    async (forceEndTime) => {
+      if (!clickWindowStartRef.current) {
+        return true;
+      }
+
+      const windowStart = clickWindowStartRef.current;
+      const windowEnd =
+        forceEndTime || new Date(windowStart.getTime() + CLICK_WINDOW_MS);
+      const clickCount = clickCountRef.current;
+
+      clickCountRef.current = 0;
+      clickWindowStartRef.current = windowEnd;
+
+      return queueClickWindow(windowStart, windowEnd, clickCount);
+    },
+    [queueClickWindow]
+  );
 
   const requestFullscreen = useCallback(() => {
     const element = document.documentElement;
@@ -81,9 +141,14 @@ const StudentExam = () => {
   }, []);
 
   const finalizeClientExit = useCallback(
-    (message) => {
+    async (message) => {
       setSubmitted(true);
       setStatus(message);
+      if (clickTimerRef.current) {
+        clearInterval(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+      await closeCurrentWindow(new Date());
       clearSessionArtifacts();
       if (document.fullscreenElement && document.exitFullscreen) {
         document.exitFullscreen().catch(() => {
@@ -93,15 +158,13 @@ const StudentExam = () => {
       if (redirectTimeoutRef.current) {
         clearTimeout(redirectTimeoutRef.current);
       }
-      redirectTimeoutRef.current = window.setTimeout(() => {
-        navigate("/login", { replace: true });
-      }, 2000);
+      navigate("/login", { replace: true });
     },
-    [clearSessionArtifacts, navigate]
+    [clearSessionArtifacts, closeCurrentWindow, navigate]
   );
 
   useEffect(() => {
-    if ((!sessionData?.id || !sessionId) && !submitted) {
+    if (!sessionData?.id || !sessionId || submitted) {
       setStatus((prev) => prev || "Redirecting to login...");
       navigate("/login", { replace: true });
     }
@@ -113,6 +176,33 @@ const StudentExam = () => {
     }
   }, [enforcementActive, requestFullscreen]);
 
+  useEffect(() => {
+    if (!enforcementActive) {
+      if (clickTimerRef.current) {
+        clearInterval(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+      clickWindowStartRef.current = null;
+      clickCountRef.current = 0;
+      clickQueueRef.current = [];
+      return undefined;
+    }
+
+    clickWindowStartRef.current = new Date();
+    clickTimerRef.current = window.setInterval(() => {
+      closeCurrentWindow().catch(() => {
+        setStatus("Unable to sync click data. Retrying automatically.");
+      });
+    }, CLICK_WINDOW_MS);
+
+    return () => {
+      if (clickTimerRef.current) {
+        clearInterval(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+    };
+  }, [enforcementActive, closeCurrentWindow]);
+
   const handleViolation = useCallback(
     async (type, message) => {
       if (!sessionData?.id || submitted) {
@@ -123,7 +213,7 @@ const StudentExam = () => {
         const { data } = await logViolation(sessionData.id, { type });
         setViolationCount(data.violationCount);
         if (data.forcedSubmit) {
-          finalizeClientExit(
+          await finalizeClientExit(
             data.message || "Exam auto-submitted due to repeated violations."
           );
         }
@@ -220,11 +310,7 @@ const StudentExam = () => {
   const handleClick = () => {
     if (!sessionData?.id || submitted) return;
     requestFullscreen();
-    setClicks((prev) => {
-      const nextClicks = prev + 1;
-      updateClicks(sessionData.id, { totalClicks: nextClicks });
-      return nextClicks;
-    });
+    clickCountRef.current += 1;
   };
 
   const handleStress = (value) => {
@@ -256,9 +342,15 @@ const StudentExam = () => {
         );
       }
 
+      const flushOk = await closeCurrentWindow(new Date());
+      if (!flushOk) {
+        setStatus("Unable to sync click data. Please try again.");
+        return;
+      }
+
       const { data } = await submitExam(sessionData.id, { feedback: "" });
       const successMessage = data?.message || "Exam submitted successfully.";
-      finalizeClientExit(`${successMessage} Redirecting to login...`);
+      await finalizeClientExit(`${successMessage} Redirecting to login...`);
     } catch (error) {
       const message =
         error?.response?.data?.error || "Unable to submit exam. Please try again.";
@@ -266,7 +358,7 @@ const StudentExam = () => {
     }
   };
 
-  if (!sessionData?.id || !sessionId) {
+  if (!sessionData?.id || !sessionId || submitted) {
     return (
       <div className="container">
         <div className="card">{status || "Redirecting to login..."}</div>

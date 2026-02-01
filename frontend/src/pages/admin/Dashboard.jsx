@@ -11,6 +11,7 @@ const AdminDashboard = () => {
     averageClicks: 0,
   });
   const [sessions, setSessions] = useState([]);
+  const [clickSeries, setClickSeries] = useState([]);
   const [feed, setFeed] = useState([]);
 
   const pushFeed = (message) => {
@@ -21,6 +22,7 @@ const AdminDashboard = () => {
     const { data } = await fetchDashboard();
     setMetrics(data.metrics);
     setSessions(data.sessions);
+    setClickSeries(data.clickSeries || []);
   };
 
   useEffect(() => {
@@ -35,6 +37,12 @@ const AdminDashboard = () => {
       },
       click_update: (payload) => {
         pushFeed(`Clicks updated for session ${payload.sessionId}`);
+        refresh();
+      },
+      click_window: (payload) => {
+        pushFeed(
+          `Click window logged for session ${payload.sessionId} (${payload.clickCount} clicks)`
+        );
         refresh();
       },
       stress_update: (payload) => {
@@ -84,7 +92,8 @@ const AdminDashboard = () => {
               <tr>
                 <th>Student</th>
                 <th>Exam</th>
-                <th>Clicks</th>
+                <th>Total Clicks</th>
+                <th>Last 40s Clicks</th>
                 <th>Stress</th>
                 <th>Submitted</th>
               </tr>
@@ -95,6 +104,14 @@ const AdminDashboard = () => {
                   <td>{s.student_id}</td>
                   <td>{s.exam_title}</td>
                   <td>{s.total_clicks}</td>
+                  <td>
+                    {s.last_window_clicks}
+                    {s.last_window_end ? (
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>
+                        {new Date(s.last_window_end).toLocaleTimeString()}
+                      </div>
+                    ) : null}
+                  </td>
                   <td>{s.stress_level}</td>
                   <td>{s.submitted_at ? "Yes" : "No"}</td>
                 </tr>
@@ -102,6 +119,37 @@ const AdminDashboard = () => {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <h3>Recent Click Windows (40s)</h3>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Exam</th>
+              <th>Window Start</th>
+              <th>Window End</th>
+              <th>Clicks</th>
+            </tr>
+          </thead>
+          <tbody>
+            {clickSeries.map((row, idx) => (
+              <tr key={`${row.session_id}-${row.window_start}-${idx}`}>
+                <td>{row.student_id}</td>
+                <td>{row.exam_title}</td>
+                <td>{new Date(row.window_start).toLocaleTimeString()}</td>
+                <td>{new Date(row.window_end).toLocaleTimeString()}</td>
+                <td>{row.click_count}</td>
+              </tr>
+            ))}
+            {!clickSeries.length && (
+              <tr>
+                <td colSpan="5">No click windows recorded yet</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

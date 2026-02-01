@@ -40,17 +40,70 @@ export const getDashboardLive = (req, res, next) => {
       "SELECT AVG(stress_level) as avg FROM exam_sessions WHERE stress_level > 0"
     );
     const avgClicks = get(
-      "SELECT AVG(total_clicks) as avg FROM exam_sessions"
+      `SELECT AVG(total) as avg
+       FROM (
+         SELECT es.id, COALESCE(SUM(ct.click_count), 0) AS total
+         FROM exam_sessions es
+         LEFT JOIN click_timeseries ct ON ct.session_id = es.id
+         GROUP BY es.id
+       )`
     );
 
     const sessions = all(
-      `SELECT es.id, s.student_id, s.name, e.title as exam_title,
-              es.total_clicks, es.stress_level, es.started_at, es.submitted_at
+      `SELECT es.id,
+              s.student_id,
+              s.name,
+              e.title as exam_title,
+              es.stress_level,
+              es.started_at,
+              es.submitted_at,
+              COALESCE((
+                SELECT SUM(ct.click_count)
+                FROM click_timeseries ct
+                WHERE ct.session_id = es.id
+              ), 0) AS total_clicks,
+              COALESCE((
+                SELECT ct.click_count
+                FROM click_timeseries ct
+                WHERE ct.session_id = es.id
+                ORDER BY ct.window_end DESC
+                LIMIT 1
+              ), 0) AS last_window_clicks,
+              (
+                SELECT ct.window_start
+                FROM click_timeseries ct
+                WHERE ct.session_id = es.id
+                ORDER BY ct.window_end DESC
+                LIMIT 1
+              ) AS last_window_start,
+              (
+                SELECT ct.window_end
+                FROM click_timeseries ct
+                WHERE ct.session_id = es.id
+                ORDER BY ct.window_end DESC
+                LIMIT 1
+              ) AS last_window_end
        FROM exam_sessions es
        JOIN students s ON s.id = es.student_id
        JOIN exams e ON e.id = es.exam_id
        ORDER BY es.started_at DESC
        LIMIT 100`
+    );
+
+    const clickSeries = all(
+      `SELECT ct.session_id,
+              ct.window_start,
+              ct.window_end,
+              ct.click_count,
+              s.student_id,
+              s.name,
+              e.title as exam_title
+       FROM click_timeseries ct
+       JOIN exam_sessions es ON es.id = ct.session_id
+       JOIN students s ON s.id = es.student_id
+       JOIN exams e ON e.id = es.exam_id
+       ORDER BY ct.window_start DESC
+       LIMIT 50`
     );
 
     return res.json({
@@ -61,6 +114,7 @@ export const getDashboardLive = (req, res, next) => {
         averageClicks: Number(avgClicks.avg || 0).toFixed(2),
       },
       sessions,
+      clickSeries,
     });
   } catch (error) {
     return next(error);
@@ -104,6 +158,10 @@ export const deleteExam = (req, res, next) => {
       );
       run(
         "DELETE FROM telemetry_events WHERE session_id IN (SELECT id FROM exam_sessions WHERE exam_id = @exam_id)",
+        { exam_id: id }
+      );
+      run(
+        "DELETE FROM click_timeseries WHERE session_id IN (SELECT id FROM exam_sessions WHERE exam_id = @exam_id)",
         { exam_id: id }
       );
       run("DELETE FROM exam_sessions WHERE exam_id = @exam_id", {
@@ -222,6 +280,10 @@ export const deleteStudent = (req, res, next) => {
       );
       run(
         "DELETE FROM telemetry_events WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
+        { student_id: id }
+      );
+      run(
+        "DELETE FROM click_timeseries WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
         { student_id: id }
       );
       run("DELETE FROM exam_sessions WHERE student_id = @student_id", {

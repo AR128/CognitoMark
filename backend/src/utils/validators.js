@@ -30,6 +30,12 @@ export const clicksSchema = z.object({
   totalClicks: z.number().int().nonnegative(),
 });
 
+export const clickFrequencySchema = z.object({
+  windowStart: z.string().min(1),
+  windowEnd: z.string().min(1),
+  clickCount: z.number().int().nonnegative(),
+});
+
 export const stressSchema = z.object({
   stressLevel: z.number().int().min(1).max(10),
 });
