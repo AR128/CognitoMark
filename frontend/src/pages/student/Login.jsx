@@ -19,6 +19,9 @@ const StudentLogin = () => {
       const { data } = await studentLogin(form);
       storage.set("student", data.student);
       storage.set("exams", data.exams);
+      if (data.student?.id) {
+        localStorage.setItem("studentDbId", String(data.student.id));
+      }
       navigate("/start");
     } catch (err) {
       setError(err.response?.data?.error || "Login failed");
