@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { all, get, run } from "../db/database.js";
+import { all, db, get, run } from "../db/database.js";
 
 export const loginAdmin = async (req, res, next) => {
   try {
@@ -91,7 +91,34 @@ export const createExam = (req, res, next) => {
 
 export const deleteExam = (req, res, next) => {
   try {
-    run("DELETE FROM exams WHERE id = @id", { id: req.params.id });
+    const examId = Number(req.params.id);
+
+    const tx = db.transaction((id) => {
+      run(
+        "DELETE FROM responses WHERE question_id IN (SELECT id FROM questions WHERE exam_id = @exam_id)",
+        { exam_id: id }
+      );
+      run(
+        "DELETE FROM responses WHERE session_id IN (SELECT id FROM exam_sessions WHERE exam_id = @exam_id)",
+        { exam_id: id }
+      );
+      run(
+        "DELETE FROM telemetry_events WHERE session_id IN (SELECT id FROM exam_sessions WHERE exam_id = @exam_id)",
+        { exam_id: id }
+      );
+      run("DELETE FROM exam_sessions WHERE exam_id = @exam_id", {
+        exam_id: id,
+      });
+      run("DELETE FROM questions WHERE exam_id = @exam_id", {
+        exam_id: id,
+      });
+      return run("DELETE FROM exams WHERE id = @exam_id", { exam_id: id });
+    });
+
+    const result = tx(examId);
+    if (!result.changes) {
+      return res.status(404).json({ error: "Exam not found" });
+    }
     return res.json({ success: true });
   } catch (error) {
     return next(error);
@@ -140,7 +167,35 @@ export const createQuestion = (req, res, next) => {
 
 export const deleteQuestion = (req, res, next) => {
   try {
-    run("DELETE FROM questions WHERE id = @id", { id: req.params.id });
+    const questionId = Number(req.params.id);
+
+    const tx = db.transaction((id) => {
+      const tables = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
+        .all();
+
+      tables.forEach(({ name }) => {
+        const fks = db.prepare(`PRAGMA foreign_key_list(${name})`).all();
+        fks
+          .filter((fk) => fk.table === "questions" && fk.to === "id")
+          .forEach((fk) => {
+            run(`DELETE FROM "${name}" WHERE "${fk.from}" = @question_id`, {
+              question_id: id,
+            });
+          });
+      });
+
+      return run("DELETE FROM questions WHERE id = @question_id", {
+        question_id: id,
+      });
+    });
+
+    const result = tx(questionId);
+    if (!result.changes) {
+      return res.status(404).json({ error: "Question not found" });
+    }
     return res.json({ success: true });
   } catch (error) {
     return next(error);
@@ -158,7 +213,29 @@ export const getStudents = (req, res, next) => {
 
 export const deleteStudent = (req, res, next) => {
   try {
-    run("DELETE FROM students WHERE id = @id", { id: req.params.id });
+    const studentId = Number(req.params.id);
+
+    const tx = db.transaction((id) => {
+      run(
+        "DELETE FROM responses WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
+        { student_id: id }
+      );
+      run(
+        "DELETE FROM telemetry_events WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
+        { student_id: id }
+      );
+      run("DELETE FROM exam_sessions WHERE student_id = @student_id", {
+        student_id: id,
+      });
+      return run("DELETE FROM students WHERE id = @student_id", {
+        student_id: id,
+      });
+    });
+
+    const result = tx(studentId);
+    if (!result.changes) {
+      return res.status(404).json({ error: "Student not found" });
+    }
     return res.json({ success: true });
   } catch (error) {
     return next(error);

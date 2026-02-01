@@ -3,10 +3,17 @@ import { deleteStudent, fetchStudents } from "../../api/adminApi";
 
 const Students = () => {
   const [students, setStudents] = useState([]);
+  const [error, setError] = useState("");
+  const [deletingId, setDeletingId] = useState(null);
 
   const load = async () => {
-    const { data } = await fetchStudents();
-    setStudents(data);
+    try {
+      setError("");
+      const { data } = await fetchStudents();
+      setStudents(data);
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to load students.");
+    }
   };
 
   useEffect(() => {
@@ -14,14 +21,26 @@ const Students = () => {
   }, []);
 
   const handleDelete = async (id) => {
-    await deleteStudent(id);
-    load();
+    if (deletingId) return;
+    const confirmed = window.confirm("Delete this student and all related data?");
+    if (!confirmed) return;
+    try {
+      setError("");
+      setDeletingId(id);
+      await deleteStudent(id);
+      setStudents((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to delete student.");
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
     <div className="container">
       <h2>Students</h2>
       <div className="card">
+        {error && <div className="alert error">{error}</div>}
         <table className="table">
           <thead>
             <tr>
@@ -38,7 +57,11 @@ const Students = () => {
                 <td>{s.name}</td>
                 <td>{s.created_at}</td>
                 <td>
-                  <button className="btn danger" onClick={() => handleDelete(s.id)}>
+                  <button
+                    className="btn danger"
+                    onClick={() => handleDelete(s.id)}
+                    disabled={deletingId === s.id}
+                  >
                     Delete
                   </button>
                 </td>
