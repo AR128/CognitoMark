@@ -5,8 +5,10 @@ import {
   responseSchema,
   stressSchema,
   submitSchema,
+  violationSchema,
 } from "../utils/validators.js";
 import {
+  logViolation,
   saveResponse,
   submitExam,
   updateClicks,
@@ -18,6 +20,7 @@ const router = Router();
 router.post("/sessions/:sessionId/response", validate(responseSchema), saveResponse);
 router.post("/sessions/:sessionId/clicks", validate(clicksSchema), updateClicks);
 router.post("/sessions/:sessionId/stress", validate(stressSchema), updateStress);
+router.post("/sessions/:sessionId/violation", validate(violationSchema), logViolation);
 router.post("/sessions/:sessionId/submit", validate(submitSchema), submitExam);
 
 export default router;

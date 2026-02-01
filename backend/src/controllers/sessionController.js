@@ -1,14 +1,65 @@
 import { get, run } from "../db/database.js";
 import { getIo } from "../sockets/index.js";
 
+const VIOLATION_THRESHOLD = Number(process.env.VIOLATION_THRESHOLD || 3);
+const VIOLATION_TYPES = ["TAB_SWITCH", "MINIMIZE", "FULLSCREEN_EXIT"];
+
+const normalizeFeedback = (feedback) => {
+  if (typeof feedback !== "string") {
+    return null;
+  }
+  const trimmed = feedback.trim();
+  return trimmed.length ? trimmed : null;
+};
+
+const findSessionById = (sessionId) =>
+  get("SELECT * FROM exam_sessions WHERE id = @id", { id: sessionId });
+
+const emitSubmissionEvent = (sessionId) => {
+  getIo().emit("exam_submitted", {
+    sessionId: Number(sessionId),
+    submittedAt: new Date().toISOString(),
+  });
+};
+
+const markSessionSubmitted = (sessionId, feedback) => {
+  run(
+    "UPDATE exam_sessions SET submitted_at = CURRENT_TIMESTAMP, feedback = @feedback WHERE id = @id",
+    { id: sessionId, feedback: normalizeFeedback(feedback) }
+  );
+  emitSubmissionEvent(sessionId);
+};
+
+const countExamQuestions = (examId) =>
+  get("SELECT COUNT(*) AS total FROM questions WHERE exam_id = @exam_id", {
+    exam_id: examId,
+  });
+
+const countAnsweredQuestions = (sessionId) =>
+  get(
+    `SELECT COUNT(*) AS total
+     FROM responses
+     WHERE session_id = @session_id
+       AND answer IS NOT NULL
+       AND TRIM(answer) <> ''`,
+    { session_id: sessionId }
+  );
+
+const countRecordedViolations = (sessionId) =>
+  get(
+    `SELECT COUNT(*) AS total
+     FROM telemetry_events
+     WHERE session_id = @session_id
+       AND type IN (${VIOLATION_TYPES.map((t) => `'${t}'`).join(", ")})`,
+    { session_id: sessionId }
+  );
+
 export const saveResponse = (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const { questionId, answer } = req.body;
 
-    const session = get("SELECT * FROM exam_sessions WHERE id = @id", {
-      id: sessionId,
-    });
+    const session = findSessionById(sessionId);
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
     }
@@ -95,9 +146,7 @@ export const submitExam = (req, res, next) => {
     const { sessionId } = req.params;
     const { feedback } = req.body;
 
-    const session = get("SELECT * FROM exam_sessions WHERE id = @id", {
-      id: sessionId,
-    });
+    const session = findSessionById(sessionId);
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
     }
@@ -105,24 +154,14 @@ export const submitExam = (req, res, next) => {
       return res.status(400).json({ error: "Exam already submitted" });
     }
 
-    const totalQuestionsRow = get(
-      "SELECT COUNT(*) AS total FROM questions WHERE exam_id = @exam_id",
-      { exam_id: session.exam_id }
-    );
+    const totalQuestionsRow = countExamQuestions(session.exam_id);
     if (!totalQuestionsRow?.total) {
       return res
         .status(400)
         .json({ error: "Exam cannot be submitted without any questions" });
     }
 
-    const answeredQuestionsRow = get(
-      `SELECT COUNT(*) AS total
-       FROM responses
-       WHERE session_id = @session_id
-         AND answer IS NOT NULL
-         AND TRIM(answer) <> ''`,
-      { session_id: sessionId }
-    );
+    const answeredQuestionsRow = countAnsweredQuestions(sessionId);
 
     if (answeredQuestionsRow.total < totalQuestionsRow.total) {
       return res.status(400).json({
@@ -131,22 +170,62 @@ export const submitExam = (req, res, next) => {
       });
     }
 
-    const normalizedFeedback =
-      typeof feedback === "string" && feedback.trim().length > 0
-        ? feedback.trim()
-        : null;
+    markSessionSubmitted(sessionId, feedback);
+
+    return res.json({
+      message: "Exam submitted successfully",
+      logout: true,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const logViolation = (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const { type } = req.body;
+
+    const session = findSessionById(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+
+    if (session.submitted_at) {
+      const violationCount = countRecordedViolations(sessionId).total;
+      return res.json({
+        message: "Session already submitted",
+        violationCount,
+        threshold: VIOLATION_THRESHOLD,
+        forcedSubmit: false,
+      });
+    }
 
     run(
-      "UPDATE exam_sessions SET submitted_at = CURRENT_TIMESTAMP, feedback = @feedback WHERE id = @id",
-      { id: sessionId, feedback: normalizedFeedback }
+      "INSERT INTO telemetry_events (session_id, type, value) VALUES (@session_id, @type, @value)",
+      {
+        session_id: sessionId,
+        type,
+        value: JSON.stringify({ violationType: type, occurredAt: new Date().toISOString() }),
+      }
     );
 
-    getIo().emit("exam_submitted", {
-      sessionId: Number(sessionId),
-      submittedAt: new Date().toISOString(),
-    });
+    const violationCount = countRecordedViolations(sessionId).total;
+    let forcedSubmit = false;
 
-    return res.json({ success: true });
+    if (violationCount >= VIOLATION_THRESHOLD) {
+      markSessionSubmitted(sessionId, null);
+      forcedSubmit = true;
+    }
+
+    return res.json({
+      message: forcedSubmit
+        ? "Exam auto-submitted due to repeated violations."
+        : "Violation logged",
+      violationCount,
+      threshold: VIOLATION_THRESHOLD,
+      forcedSubmit,
+    });
   } catch (error) {
     return next(error);
   }

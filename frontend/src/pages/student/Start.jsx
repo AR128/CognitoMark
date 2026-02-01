@@ -26,6 +26,8 @@ const StartExam = () => {
       storage.set("session", data.session);
       storage.set("exam", data.exam);
       storage.set("questions", data.questions);
+      localStorage.setItem("sessionId", String(data.session.id));
+      localStorage.setItem("examId", String(data.exam.id));
       navigate("/exam");
     } catch (err) {
       setError(err.response?.data?.error || "Unable to start exam");

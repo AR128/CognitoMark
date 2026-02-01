@@ -11,3 +11,6 @@ export const updateStress = (sessionId, payload) =>
 
 export const submitExam = (sessionId, payload) =>
   api.post(`/api/sessions/${sessionId}/submit`, payload);
+
+export const logViolation = (sessionId, payload) =>
+  api.post(`/api/sessions/${sessionId}/violation`, payload);

@@ -37,3 +37,7 @@ export const stressSchema = z.object({
 export const submitSchema = z.object({
   feedback: z.string().optional(),
 });
+
+export const violationSchema = z.object({
+  type: z.enum(["TAB_SWITCH", "MINIMIZE", "FULLSCREEN_EXIT"]),
+});
