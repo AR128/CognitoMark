@@ -64,6 +64,16 @@ CREATE TABLE IF NOT EXISTS telemetry_events (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (session_id) REFERENCES exam_sessions(id)
 );
+
+CREATE TABLE IF NOT EXISTS click_timeseries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL,
+  window_start TEXT NOT NULL,
+  window_end TEXT NOT NULL,
+  click_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (session_id) REFERENCES exam_sessions(id)
+);
 `;
 
 export const initDb = async () => {
