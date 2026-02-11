@@ -1,16 +1,16 @@
-import { Link } from "react-router-dom";
+import Link from "next/link";
 
 const Navbar = () => (
   <nav className="nav">
     <div className="logo">Exam Monitor</div>
     <div className="nav-links">
-      <Link to="/login">Student</Link>
-      <Link to="/admin/login">Admin</Link>
-      <Link to="/admin/dashboard">Dashboard</Link>
-      <Link to="/admin/exams">Exams</Link>
-      <Link to="/admin/questions">Questions</Link>
-      <Link to="/admin/students">Students</Link>
-      <Link to="/admin/sessions">Sessions</Link>
+      <Link href="/login">Student</Link>
+      <Link href="/admin/login">Admin</Link>
+      <Link href="/admin/dashboard">Dashboard</Link>
+      <Link href="/admin/exams">Exams</Link>
+      <Link href="/admin/questions">Questions</Link>
+      <Link href="/admin/students">Students</Link>
+      <Link href="/admin/sessions">Sessions</Link>
     </div>
   </nav>
 );
