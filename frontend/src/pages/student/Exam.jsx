@@ -227,10 +227,29 @@ const StudentExam = () => {
     [sessionData?.id, submitted, finalizeClientExit]
   );
 
+  const handleClick = useCallback((event) => {
+    if (!sessionData?.id || submitted) return;
+    
+    // Only count clicks within the exam interface
+    const examContainer = document.querySelector('.exam-container');
+    if (examContainer && examContainer.contains(event.target)) {
+      requestFullscreen();
+      clickCountRef.current += 1;
+    }
+  }, [sessionData?.id, submitted, requestFullscreen]);
+
   useEffect(() => {
     if (!enforcementActive) {
       return undefined;
     }
+
+    // Global click listener for accurate click counting
+    const handleDocumentClick = (event) => {
+      handleClick(event);
+    };
+
+    // Add global click listener to capture all clicks
+    document.addEventListener('click', handleDocumentClick, true);
 
     const handleVisibility = () => {
       if (document.visibilityState === "hidden") {
@@ -277,13 +296,14 @@ const StudentExam = () => {
     window.addEventListener("keydown", handleKeyDown, true);
 
     return () => {
+      document.removeEventListener('click', handleDocumentClick, true);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("blur", handleBlur);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [enforcementActive, handleViolation]);
+  }, [enforcementActive, handleViolation, handleClick]);
 
   const unansweredQuestions = useMemo(
     () => questions.filter((q) => !hasAnswerValue(answers[q.id])),
@@ -305,12 +325,6 @@ const StudentExam = () => {
   const handleAnswerChange = (questionId, value) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
     debouncedSave(questionId, value);
-  };
-
-  const handleClick = () => {
-    if (!sessionData?.id || submitted) return;
-    requestFullscreen();
-    clickCountRef.current += 1;
   };
 
   const handleStress = (value) => {
@@ -367,7 +381,7 @@ const StudentExam = () => {
   }
 
   return (
-    <div className="container" onClick={handleClick}>
+    <div className="container exam-container">
       <div className="card">
         <h2>{exam?.title || "Exam"}</h2>
         <div className="badge">Session #{sessionData.id}</div>

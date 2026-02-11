@@ -23,7 +23,7 @@ const Sessions = () => {
             <tr>
               <th>Student</th>
               <th>Exam</th>
-              <th>Clicks</th>
+              {/* <th>Clicks</th> */}
               <th>Stress</th>
               <th>Started</th>
               <th>Submitted</th>
@@ -35,7 +35,7 @@ const Sessions = () => {
               <tr key={s.id}>
                 <td>{s.student_id}</td>
                 <td>{s.exam_title}</td>
-                <td>{s.total_clicks}</td>
+                {/* <td>{s.total_clicks}</td> */}
                 <td>{s.stress_level}</td>
                 <td>{s.started_at}</td>
                 <td>{s.submitted_at ? "Yes" : "No"}</td>
