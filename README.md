@@ -16,8 +16,8 @@ Modern, real-time exam monitoring portal with dedicated Student and Admin experi
 ## 🧱 Tech Stack
 
 **Frontend**
-- React + Vite
-- React Router
+- Next.js (App Router)
+- React
 - Axios
 - Socket.IO Client
 
@@ -58,10 +58,11 @@ Exam_portal_for_Data/
       utils/
   frontend/
     src/
+      app/
       api/
       components/
       hooks/
-      pages/
+      screens/
         admin/
         student/
       utils/
@@ -88,6 +89,22 @@ cd frontend
 npm install
 npm run dev
 ```
+The frontend runs at http://localhost:3000 by default.
+
+### Run Both (Two Terminals)
+Terminal 1:
+```
+cd backend
+npm install
+npm run dev
+```
+
+Terminal 2:
+```
+cd frontend
+npm install
+npm run dev
+```
 
 ---
 
@@ -101,7 +118,7 @@ PORT=5000
 JWT_SECRET=super_secret_change_me
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=admin123
-CLIENT_ORIGIN=http://localhost:5173
+CLIENT_ORIGIN=http://localhost:3000
 DB_PATH=./exam-portal.db
 ```
 
@@ -109,8 +126,8 @@ DB_PATH=./exam-portal.db
 File: [frontend/.env](frontend/.env)
 
 ```
-VITE_API_URL=http://localhost:5000
-VITE_SOCKET_URL=http://localhost:5000
+NEXT_PUBLIC_API_URL=http://localhost:5000
+NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 ```
 
 ---
@@ -189,9 +206,9 @@ Core tables created on startup:
 - `npm start` – start API (no watch)
 
 **Frontend**
-- `npm run dev` – start Vite dev server
+- `npm run dev` – start Next.js dev server
 - `npm run build` – build for production
-- `npm run preview` – preview production build
+- `npm run start` – run production build
 
 ---
 
