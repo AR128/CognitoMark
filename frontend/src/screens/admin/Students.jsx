@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { deleteStudent, fetchStudents } from "../../api/adminApi";
+import { io } from "socket.io-client";
+import ConfirmModal from "../../components/ConfirmModal";
 
 const Students = () => {
   const [students, setStudents] = useState([]);
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState(null);
+  const [modal, setModal] = useState({ isOpen: false, id: null });
 
   const load = async () => {
     try {
@@ -20,12 +23,33 @@ const Students = () => {
 
   useEffect(() => {
     load();
+
+    const socket = io(
+      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5000",
+    );
+
+    socket.on("student_created", () => {
+      load();
+    });
+
+    socket.on("student_deleted", () => {
+      load();
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
-  const handleDelete = async (id) => {
+  const handleDeleteClick = (id) => {
+    setModal({ isOpen: true, id });
+  };
+
+  const handleConfirmDelete = async () => {
+    const { id } = modal;
+    setModal({ isOpen: false, id: null });
+
     if (deletingId) return;
-    const confirmed = window.confirm("Delete this student and all related data?");
-    if (!confirmed) return;
     try {
       setError("");
       setDeletingId(id);
@@ -43,35 +67,55 @@ const Students = () => {
       <h2>Students</h2>
       <div className="card">
         {error && <div className="alert error">{error}</div>}
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Student ID</th>
-              <th>Name</th>
-              <th>Created</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {students.map((s) => (
-              <tr key={s.id}>
-                <td>{s.student_id}</td>
-                <td>{s.name}</td>
-                <td>{s.created_at}</td>
-                <td>
-                  <button
-                    className="btn danger"
-                    onClick={() => handleDelete(s.id)}
-                    disabled={deletingId === s.id}
-                  >
-                    Delete
-                  </button>
-                </td>
+        {students.length === 0 ? (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "2rem",
+              color: "var(--muted)",
+            }}
+          >
+            No students found.
+          </div>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Student ID</th>
+                <th>Name</th>
+                <th>Created</th>
+                <th>Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {students.map((s) => (
+                <tr key={s.id}>
+                  <td>{s.student_id}</td>
+                  <td>{s.name}</td>
+                  <td>{s.created_at}</td>
+                  <td>
+                    <button
+                      className="btn danger"
+                      onClick={() => handleDeleteClick(s.id)}
+                      disabled={deletingId === s.id}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
+
+      <ConfirmModal
+        isOpen={modal.isOpen}
+        title="Delete Student"
+        message="Are you sure you want to delete this student? All related data (exam sessions, responses) will be permanently removed."
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setModal({ isOpen: false, id: null })}
+      />
     </div>
   );
 };

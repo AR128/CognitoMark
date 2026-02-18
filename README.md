@@ -1,228 +1,114 @@
-# Exam Data Acquisition & Monitoring Portal
+# 🎓 High-Fidelity Exam Portal
 
-Modern, real-time exam monitoring portal with dedicated Student and Admin experiences, live telemetry, and a lightweight SQLite backend.
-
----
-
-## ✨ Highlights
-- **Dual portals**: Student exam flow + Admin management dashboard.
-- **Real-time telemetry**: click count, stress level, and session events via Socket.IO.
-- **Live analytics**: active students, submissions, average stress, and click metrics.
-- **Secure admin access** with JWT tokens.
-- **SQLite data layer** using better-sqlite3 for simple local persistence.
+A state-of-the-art, real-time examination platform with advanced telemetry, granular behavior tracking, and a premium administrative dashboard. Built for reliability, precision, and a seamless user experience.
 
 ---
 
-## 🧱 Tech Stack
+## 🚀 Key Features
 
-**Frontend**
-- Next.js (App Router)
-- React
-- Axios
-- Socket.IO Client
+### 📡 Real-Time Administration
 
-**Backend**
-- Node.js + Express
-- SQLite (better-sqlite3)
-- Socket.IO
-- JWT + bcrypt
-- Zod validation
+- **Live Updates**: Instant notification of student registrations, exam starts, and submissions via Socket.IO.
+- **Dynamic Dashboard**: Real-time refreshing of the Students and Sessions tabs without manual reloads.
+- **Empty States**: Clean, user-friendly messages for a polished look when data is empty.
 
----
+### 🖱️ Advanced Telemetry & Tracking
 
-## 🗺️ Architecture
+- **High-Fidelity Click Tracking**: Captures all user clicks across the entire session, including background clicks.
+- **Granular Categorization**: Clicks are automatically logged into specific sections: Header, Integrity Monitoring, Stress Bar, Question Area, and Navigation.
+- **Sequential Answering**: Enforced logical flow where students must answer the current question to proceed.
+- **Integrity Monitor**: Real-time detection of tab switching, window minimizing, and fullscreen exits with a configurable violation threshold.
 
-```mermaid
-flowchart LR
-  A[Student UI] -->|REST| B[Express API]
-  C[Admin UI] -->|REST| B
-  A -->|Socket.IO| D[Realtime Events]
-  C -->|Socket.IO| D
-  B --> E[(SQLite DB)]
-  D --> B
-```
+### 💎 Premium User Experience
+
+- **Vibrant UI**: Sleek dark mode with glassmorphism effects and modern typography.
+- **Custom Components**: Premium confirmation modals and designer dropdowns replacing standard browser defaults.
+- **Responsive Navigation**: Collapsible sidebar with high-quality micro-animations.
+
+### 🛠️ Technical Stack
+
+- **Frontend**: Next.js 16 (Turbopack), React 19, Socket.IO Client, Axios.
+- **Backend**: Express.js, Socket.IO, Better-SQLite3, JWT Authentication.
+- **Database**: High-precision timeseries logging for telemetry data.
 
 ---
 
-## 📁 Project Structure
+## 📂 Project Structure
 
-```
-Exam_portal_for_Data/
-  backend/
-    src/
-      controllers/
-      db/
-      middlewares/
-      routes/
-      sockets/
-      utils/
-  frontend/
-    src/
-      app/
-      api/
-      components/
-      hooks/
-      screens/
-        admin/
-        student/
-      utils/
-```
+| Directory                 | Description                                                  |
+| :------------------------ | :----------------------------------------------------------- |
+| `frontend/src/app`        | Next.js App Router pages and layouts.                        |
+| `frontend/src/screens`    | Core view components (Student Login, Exam, Admin Dashboard). |
+| `frontend/src/components` | Reusable UI (ConfirmModal, Sidebar, ProtectedRoute).         |
+| `frontend/src/api`        | API client wrappers for frontend-backend communication.      |
+| `backend/src/controllers` | Business logic for exams, students, and administration.      |
+| `backend/src/db`          | Database schema and high-fidelity timeseries logs.           |
+| `backend/src/sockets`     | Real-time event orchestration.                               |
 
 ---
 
-## 🚀 Getting Started
+## 🛠️ Getting Started
 
 ### Prerequisites
-- Node.js (LTS recommended)
-- npm
 
-### Backend
-```
-cd backend
-npm install
-npm run dev
-```
+- Node.js (v18+)
+- npm / pnpm / yarn
 
-### Frontend
-```
-cd frontend
-npm install
-npm run dev
-```
-The frontend runs at http://localhost:3000 by default.
+### Installation
 
-### Run Both (Two Terminals)
-Terminal 1:
-```
-cd backend
-npm install
-npm run dev
-```
+1. **Clone the repository**
+2. **Setup Backend**
+   ```bash
+   cd backend
+   npm install
+   # Create a .env file based on .env.example
+   npm run dev
+   ```
+3. **Setup Frontend**
+   ```bash
+   cd frontend
+   npm install
+   # Create a .env file based on .env.example
+   npm run dev
+   ```
 
-Terminal 2:
-```
-cd frontend
-npm install
-npm run dev
+### Environment Variables
+
+#### Backend (`backend/.env`)
+
+- `PORT`: Server port (default: 5000)
+- `JWT_SECRET`: Security key for admin authentication
+- `CLIENT_ORIGIN`: Frontend URL for CORS (e.g., http://localhost:3000)
+
+#### Frontend (`frontend/.env`)
+
+- `NEXT_PUBLIC_API_URL`: Backend API endpoint
+- `NEXT_PUBLIC_SOCKET_URL`: Backend Socket.IO endpoint
+
+---
+
+## 📊 Way of Working: Telemetry Flow
+
+```mermaid
+graph TD
+    A[Student Selects Exam] --> B[Session Initialized]
+    B --> C[Question Rendered]
+    C -->|User Interaction| D{Click Captured}
+    D -->|Coordinate Check| E[Section Categorized]
+    E -->|Buffering| F[Timeseries DB Log]
+    F -->|Socket Emission| G[Admin Dashboard Refresh]
+    C -->|Violation| H[Integrity Guard]
+    H -->|Forced Exit| I[Exam Auto-Submission]
 ```
 
 ---
 
-## 🔐 Environment Variables
+## 🛡️ Security & Integrity
 
-### Backend (.env)
-File: [backend/.env](backend/.env)
-
-```
-PORT=5000
-JWT_SECRET=super_secret_change_me
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin123
-CLIENT_ORIGIN=http://localhost:3000
-DB_PATH=./exam-portal.db
-```
-
-### Frontend (.env)
-File: [frontend/.env](frontend/.env)
-
-```
-NEXT_PUBLIC_API_URL=http://localhost:5000
-NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
-```
+- **JWT Protection**: All admin routes are secured via JSON Web Tokens.
+- **SSR Safety**: Robust guards for client-side storage access during Server-Side Rendering.
+- **Sequential Guard**: Backend verification ensures questions are answered in the correct order.
 
 ---
 
-## 🔑 Default Admin Credentials
-- Username: `admin`
-- Password: `admin123`
-
-> Change these in [backend/.env](backend/.env) for production use.
-
----
-
-## 🧭 Usage Flow
-1. Start backend and frontend.
-2. **Admin** logs in and creates an exam + questions.
-3. **Student** logs in, selects an exam, and starts the session.
-4. Live telemetry and activity feed updates appear on the Admin dashboard.
-
----
-
-## 📡 Realtime Events
-The backend emits Socket.IO events consumed by the admin dashboard:
-
-- `student_started`
-- `answer_saved`
-- `click_update`
-- `stress_update`
-- `exam_submitted`
-
----
-
-## 🧪 API Overview
-
-**Auth & Sessions**
-- `POST /api/admin/login`
-- `POST /api/students/login`
-- `POST /api/students/exams/:examId/start`
-
-**Student Telemetry**
-- `POST /api/sessions/:sessionId/response`
-- `POST /api/sessions/:sessionId/clicks`
-- `POST /api/sessions/:sessionId/stress`
-- `POST /api/sessions/:sessionId/submit`
-
-**Admin**
-- `GET /api/admin/dashboard/live`
-- `GET /api/admin/exams`
-- `POST /api/admin/exams`
-- `DELETE /api/admin/exams/:id`
-- `GET /api/admin/exams/:id/questions`
-- `POST /api/admin/questions`
-- `DELETE /api/admin/questions/:id`
-- `GET /api/admin/students`
-- `DELETE /api/admin/students/:id`
-- `GET /api/admin/sessions`
-- `GET /api/admin/sessions/:sessionId`
-
----
-
-## 🗃️ Data Model (SQLite)
-Core tables created on startup:
-- `admins`
-- `students`
-- `exams`
-- `questions`
-- `exam_sessions`
-- `responses`
-- `telemetry_events`
-
----
-
-## 🧰 Useful Scripts
-
-**Backend**
-- `npm run dev` – start API with nodemon
-- `npm start` – start API (no watch)
-
-**Frontend**
-- `npm run dev` – start Next.js dev server
-- `npm run build` – build for production
-- `npm run start` – run production build
-
----
-
-## ✅ Health Check
-The backend exposes:
-- `GET /api/health` → `{ "status": "ok" }`
-
----
-
-## 🛡️ Security Notes
-- Update `JWT_SECRET` before deploying.
-- Replace default admin credentials in [backend/.env](backend/.env).
-
----
-
-## 📌 Notes
-This project is designed for local development and demo environments. Extend authentication, rate limiting, and persistence as needed for production.
+_Developed with a focus on visual excellence and behavioral precision._

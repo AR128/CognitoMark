@@ -11,7 +11,7 @@ const ProtectedRoute = ({ children }) => {
   useEffect(() => {
     const token = storage.get("adminToken");
     if (!token) {
-      router.replace("/admin/login");
+      router.replace("/admin");
       return;
     }
     setAuthorized(true);

@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { all, db, get, run } from "../db/database.js";
+import { getIo } from "../sockets/index.js";
 
 export const loginAdmin = async (req, res, next) => {
   try {
@@ -31,13 +32,13 @@ export const loginAdmin = async (req, res, next) => {
 export const getDashboardLive = (req, res, next) => {
   try {
     const activeCount = get(
-      "SELECT COUNT(*) as count FROM exam_sessions WHERE submitted_at IS NULL"
+      "SELECT COUNT(*) as count FROM exam_sessions WHERE submitted_at IS NULL",
     );
     const submittedCount = get(
-      "SELECT COUNT(*) as count FROM exam_sessions WHERE submitted_at IS NOT NULL"
+      "SELECT COUNT(*) as count FROM exam_sessions WHERE submitted_at IS NOT NULL",
     );
     const avgStress = get(
-      "SELECT AVG(stress_level) as avg FROM exam_sessions WHERE stress_level > 0"
+      "SELECT AVG(stress_level) as avg FROM exam_sessions WHERE stress_level > 0",
     );
     const avgClicks = get(
       `SELECT AVG(total) as avg
@@ -46,7 +47,7 @@ export const getDashboardLive = (req, res, next) => {
          FROM exam_sessions es
          LEFT JOIN click_timeseries ct ON ct.session_id = es.id
          GROUP BY es.id
-       )`
+       )`,
     );
 
     const sessions = all(
@@ -87,7 +88,7 @@ export const getDashboardLive = (req, res, next) => {
        JOIN students s ON s.id = es.student_id
        JOIN exams e ON e.id = es.exam_id
        ORDER BY es.started_at DESC
-       LIMIT 100`
+       LIMIT 100`,
     );
 
     const clickSeries = all(
@@ -95,6 +96,8 @@ export const getDashboardLive = (req, res, next) => {
               ct.window_start,
               ct.window_end,
               ct.click_count,
+              ct.question_id,
+              q.text as question_text,
               s.student_id,
               s.name,
               e.title as exam_title
@@ -102,8 +105,9 @@ export const getDashboardLive = (req, res, next) => {
        JOIN exam_sessions es ON es.id = ct.session_id
        JOIN students s ON s.id = es.student_id
        JOIN exams e ON e.id = es.exam_id
+       LEFT JOIN questions q ON q.id = ct.question_id
        ORDER BY ct.window_start DESC
-       LIMIT 50`
+       LIMIT 50`,
     );
 
     return res.json({
@@ -150,19 +154,19 @@ export const deleteExam = (req, res, next) => {
     const tx = db.transaction((id) => {
       run(
         "DELETE FROM responses WHERE question_id IN (SELECT id FROM questions WHERE exam_id = @exam_id)",
-        { exam_id: id }
+        { exam_id: id },
       );
       run(
         "DELETE FROM responses WHERE session_id IN (SELECT id FROM exam_sessions WHERE exam_id = @exam_id)",
-        { exam_id: id }
+        { exam_id: id },
       );
       run(
         "DELETE FROM telemetry_events WHERE session_id IN (SELECT id FROM exam_sessions WHERE exam_id = @exam_id)",
-        { exam_id: id }
+        { exam_id: id },
       );
       run(
         "DELETE FROM click_timeseries WHERE session_id IN (SELECT id FROM exam_sessions WHERE exam_id = @exam_id)",
-        { exam_id: id }
+        { exam_id: id },
       );
       run("DELETE FROM exam_sessions WHERE exam_id = @exam_id", {
         exam_id: id,
@@ -187,12 +191,14 @@ export const getExamQuestions = (req, res, next) => {
   try {
     const questions = all(
       "SELECT * FROM questions WHERE exam_id = @exam_id ORDER BY created_at DESC",
-      { exam_id: req.params.id }
+      { exam_id: req.params.id },
     );
-    return res.json(questions.map((q) => ({
-      ...q,
-      options: q.options ? JSON.parse(q.options) : [],
-    })));
+    return res.json(
+      questions.map((q) => ({
+        ...q,
+        options: q.options ? JSON.parse(q.options) : [],
+      })),
+    );
   } catch (error) {
     return next(error);
   }
@@ -209,7 +215,7 @@ export const createQuestion = (req, res, next) => {
         text,
         type,
         options: optionsJson,
-      }
+      },
     );
     const question = get("SELECT * FROM questions WHERE id = @id", {
       id: info.lastInsertRowid,
@@ -230,7 +236,7 @@ export const deleteQuestion = (req, res, next) => {
     const tx = db.transaction((id) => {
       const tables = db
         .prepare(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
         )
         .all();
 
@@ -276,15 +282,15 @@ export const deleteStudent = (req, res, next) => {
     const tx = db.transaction((id) => {
       run(
         "DELETE FROM responses WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
-        { student_id: id }
+        { student_id: id },
       );
       run(
         "DELETE FROM telemetry_events WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
-        { student_id: id }
+        { student_id: id },
       );
       run(
         "DELETE FROM click_timeseries WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
-        { student_id: id }
+        { student_id: id },
       );
       run("DELETE FROM exam_sessions WHERE student_id = @student_id", {
         student_id: id,
@@ -298,6 +304,10 @@ export const deleteStudent = (req, res, next) => {
     if (!result.changes) {
       return res.status(404).json({ error: "Student not found" });
     }
+
+    getIo().emit("student_deleted", { studentId });
+    getIo().emit("session_deleted"); // Notify sessions list to refresh
+
     return res.json({ success: true });
   } catch (error) {
     return next(error);
@@ -308,11 +318,12 @@ export const getSessions = (req, res, next) => {
   try {
     const sessions = all(
       `SELECT es.id, s.student_id, s.name, e.title as exam_title,
-              es.total_clicks, es.stress_level, es.started_at, es.submitted_at
+              (SELECT COALESCE(SUM(click_count), 0) FROM click_timeseries WHERE session_id = es.id) as total_clicks,
+              es.stress_level, es.started_at, es.submitted_at
        FROM exam_sessions es
        JOIN students s ON s.id = es.student_id
        JOIN exams e ON e.id = es.exam_id
-       ORDER BY es.started_at DESC`
+       ORDER BY es.started_at DESC`,
     );
     return res.json(sessions);
   } catch (error) {
@@ -323,20 +334,42 @@ export const getSessions = (req, res, next) => {
 export const getSessionDetail = (req, res, next) => {
   try {
     const session = get(
-      `SELECT es.*, s.student_id, s.name, e.title as exam_title
+      `SELECT es.*, s.student_id, s.name, e.title as exam_title,
+              (SELECT COALESCE(SUM(click_count), 0) FROM click_timeseries WHERE session_id = es.id) as total_clicks
        FROM exam_sessions es
        JOIN students s ON s.id = es.student_id
        JOIN exams e ON e.id = es.exam_id
        WHERE es.id = @id`,
-      { id: req.params.sessionId }
+      { id: req.params.sessionId },
     );
 
     const responses = all(
-      `SELECT r.*, q.text, q.type, q.options
+      `SELECT r.*, q.text, q.type, q.options,
+              (SELECT COALESCE(SUM(click_count), 0) 
+               FROM click_timeseries 
+               WHERE session_id = r.session_id AND question_id = r.question_id) as click_count,
+              (SELECT COALESCE(SUM(header_clicks), 0) 
+               FROM click_timeseries 
+               WHERE session_id = r.session_id AND question_id = r.question_id) as header_clicks,
+              (SELECT COALESCE(SUM(integrity_clicks), 0) 
+               FROM click_timeseries 
+               WHERE session_id = r.session_id AND question_id = r.question_id) as integrity_clicks,
+              (SELECT COALESCE(SUM(stress_clicks), 0) 
+               FROM click_timeseries 
+               WHERE session_id = r.session_id AND question_id = r.question_id) as stress_clicks,
+              (SELECT COALESCE(SUM(question_clicks), 0) 
+               FROM click_timeseries 
+               WHERE session_id = r.session_id AND question_id = r.question_id) as question_clicks,
+              (SELECT COALESCE(SUM(footer_clicks), 0) 
+               FROM click_timeseries 
+               WHERE session_id = r.session_id AND question_id = r.question_id) as footer_clicks,
+              (SELECT COALESCE(SUM(other_clicks), 0) 
+               FROM click_timeseries 
+               WHERE session_id = r.session_id AND question_id = r.question_id) as other_clicks
        FROM responses r
        JOIN questions q ON q.id = r.question_id
        WHERE r.session_id = @session_id`,
-      { session_id: req.params.sessionId }
+      { session_id: req.params.sessionId },
     ).map((r) => ({
       ...r,
       options: r.options ? JSON.parse(r.options) : [],

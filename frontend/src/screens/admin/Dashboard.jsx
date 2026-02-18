@@ -43,7 +43,7 @@ const AdminDashboard = () => {
       },
       click_window: (payload) => {
         pushFeed(
-          `Click window logged for session ${payload.sessionId} (${payload.clickCount} clicks)`
+          `Click window logged for session ${payload.sessionId} (${payload.clickCount} clicks)`,
         );
         refresh();
       },
@@ -59,7 +59,7 @@ const AdminDashboard = () => {
         refresh();
       },
     }),
-    []
+    [],
   );
 
   useSocket(handlers);
@@ -67,7 +67,10 @@ const AdminDashboard = () => {
   return (
     <div className="container">
       <h2>Live Dashboard</h2>
-      <div className="grid four" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+      <div
+        className="grid four"
+        style={{ gridTemplateColumns: "repeat(4, 1fr)" }}
+      >
         <MetricCard label="Active Students" value={metrics.activeStudents} />
         <MetricCard label="Submitted" value={metrics.submittedStudents} />
         <MetricCard label="Avg Stress" value={metrics.averageStress} />
@@ -130,6 +133,7 @@ const AdminDashboard = () => {
             <tr>
               <th>Student</th>
               <th>Exam</th>
+              <th>Question</th>
               <th>Window Start</th>
               <th>Window End</th>
               <th>Clicks</th>
@@ -140,6 +144,7 @@ const AdminDashboard = () => {
               <tr key={`${row.session_id}-${row.window_start}-${idx}`}>
                 <td>{row.student_id}</td>
                 <td>{row.exam_title}</td>
+                <td>{row.question_text || "General"}</td>
                 <td>{new Date(row.window_start).toLocaleTimeString()}</td>
                 <td>{new Date(row.window_end).toLocaleTimeString()}</td>
                 <td>{row.click_count}</td>

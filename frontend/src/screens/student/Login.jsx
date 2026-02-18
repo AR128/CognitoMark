@@ -31,15 +31,36 @@ const StudentLogin = () => {
   };
 
   return (
-    <div className="container">
-      <div className="card" style={{ maxWidth: 420, margin: "0 auto" }}>
-        <h2>Student Login</h2>
-        <p className="notice">Enter your Student ID and Name.</p>
-        <form onSubmit={handleSubmit} className="grid">
+    <div className="container centered-page">
+      <div
+        className="card"
+        style={{ maxWidth: 520, width: "100%", padding: "3rem" }}
+      >
+        <h2
+          style={{
+            fontSize: "2rem",
+            marginBottom: "1rem",
+            textAlign: "center",
+          }}
+        >
+          Student Login
+        </h2>
+        <p
+          className="notice"
+          style={{ textAlign: "center", marginBottom: "2rem" }}
+        >
+          Enter your Student ID and Name.
+        </p>
+        <form
+          onSubmit={handleSubmit}
+          className="grid"
+          style={{ gap: "1.5rem" }}
+        >
           <input
             className="input"
             name="studentId"
             placeholder="Student ID"
+            style={{ fontSize: "1.1rem", padding: "12px 16px" }}
             value={form.studentId}
             onChange={handleChange}
           />
@@ -47,15 +68,23 @@ const StudentLogin = () => {
             className="input"
             name="name"
             placeholder="Full Name"
+            style={{ fontSize: "1.1rem", padding: "12px 16px" }}
             value={form.name}
             onChange={handleChange}
           />
           {error && (
-            <div className="notice" style={{ color: "var(--danger)" }}>
+            <div
+              className="notice"
+              style={{ color: "var(--danger)", textAlign: "center" }}
+            >
               {error}
             </div>
           )}
-          <button className="btn" type="submit">
+          <button
+            className="btn"
+            type="submit"
+            style={{ fontSize: "1.1rem", padding: "14px" }}
+          >
             Login
           </button>
         </form>

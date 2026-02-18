@@ -11,7 +11,7 @@ export const studentLogin = (req, res, next) => {
     if (!student) {
       const info = run(
         "INSERT INTO students (student_id, name) VALUES (@student_id, @name)",
-        { student_id: studentId, name }
+        { student_id: studentId, name },
       );
       student = get("SELECT * FROM students WHERE id = @id", {
         id: info.lastInsertRowid,
@@ -19,6 +19,10 @@ export const studentLogin = (req, res, next) => {
     }
 
     const exams = all("SELECT * FROM exams ORDER BY created_at DESC");
+
+    getIo().emit("student_created", {
+      student,
+    });
 
     return res.json({ student, exams });
   } catch (error) {
@@ -31,9 +35,12 @@ export const startExam = (req, res, next) => {
     const { examId } = req.params;
     const { studentId } = req.body;
 
-    const student = get("SELECT * FROM students WHERE student_id = @student_id", {
-      student_id: studentId,
-    });
+    const student = get(
+      "SELECT * FROM students WHERE student_id = @student_id",
+      {
+        student_id: studentId,
+      },
+    );
 
     if (!student) {
       return res.status(404).json({ error: "Student not found" });
@@ -46,7 +53,7 @@ export const startExam = (req, res, next) => {
 
     const info = run(
       "INSERT INTO exam_sessions (student_id, exam_id) VALUES (@student_id, @exam_id)",
-      { student_id: student.id, exam_id: examId }
+      { student_id: student.id, exam_id: examId },
     );
 
     const session = get("SELECT * FROM exam_sessions WHERE id = @id", {
@@ -55,7 +62,7 @@ export const startExam = (req, res, next) => {
 
     const questions = all(
       "SELECT * FROM questions WHERE exam_id = @exam_id ORDER BY created_at ASC",
-      { exam_id: examId }
+      { exam_id: examId },
     ).map((q) => ({
       ...q,
       options: q.options ? JSON.parse(q.options) : [],

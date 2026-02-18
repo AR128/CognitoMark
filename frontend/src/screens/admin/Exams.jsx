@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { createExam, deleteExam, fetchExams } from "../../api/adminApi";
+import ConfirmModal from "../../components/ConfirmModal";
 
 const Exams = () => {
   const [exams, setExams] = useState([]);
   const [title, setTitle] = useState("");
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState(null);
+  const [modal, setModal] = useState({ isOpen: false, id: null });
 
   const load = async () => {
     try {
@@ -35,10 +37,15 @@ const Exams = () => {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDeleteClick = (id) => {
+    setModal({ isOpen: true, id });
+  };
+
+  const handleConfirmDelete = async () => {
+    const { id } = modal;
+    setModal({ isOpen: false, id: null });
+
     if (deletingId) return;
-    const confirmed = window.confirm("Delete this exam and all related data?");
-    if (!confirmed) return;
     try {
       setError("");
       setDeletingId(id);
@@ -62,7 +69,9 @@ const Exams = () => {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
-          <button className="btn" onClick={handleCreate}>Create Exam</button>
+          <button className="btn" onClick={handleCreate}>
+            Create Exam
+          </button>
         </div>
       </div>
 
@@ -84,7 +93,7 @@ const Exams = () => {
                 <td>
                   <button
                     className="btn danger"
-                    onClick={() => handleDelete(exam.id)}
+                    onClick={() => handleDeleteClick(exam.id)}
                     disabled={deletingId === exam.id}
                   >
                     Delete
@@ -95,6 +104,14 @@ const Exams = () => {
           </tbody>
         </table>
       </div>
+
+      <ConfirmModal
+        isOpen={modal.isOpen}
+        title="Delete Exam"
+        message="Are you sure you want to delete this exam? All related questions, sessions, and telemetry data will be permanently deleted."
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setModal({ isOpen: false, id: null })}
+      />
     </div>
   );
 };
