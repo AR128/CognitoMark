@@ -1,0 +1,43 @@
+
+> exam-portal-frontend@1.0.0 build
+> next build
+
+Γû▓ Next.js 16.1.6 (Turbopack)
+- Environments: .env
+
+  Creating an optimized production build ...
+
+> Build error occurred
+Error: Turbopack build failed with 2 errors:
+./src/pages/admin/Sessions.jsx:2:1
+Module not found: Can't resolve 'react-router-dom'
+  1 | import { useEffect, useState } from "react";
+> 2 | import { Link } from "react-router-dom";
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  3 | import { fetchSessions } from "../../api/adminApi";
+  4 |
+  5 | const Sessions = () => {
+
+
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+./src/pages/student/Exam.jsx:2:1
+Module not found: Can't resolve 'react-router-dom'
+  1 | import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+> 2 | import { useNavigate } from "react-router-dom";
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  3 | import { debounce } from "../../utils/debounce";
+  4 | import { storage } from "../../utils/storage";
+  5 | import {
+
+
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+    at <unknown> (./src/pages/admin/Sessions.jsx:2:1)
+    at <unknown> (https://nextjs.org/docs/messages/module-not-found)
+    at <unknown> (./src/pages/student/Exam.jsx:2:1)
+    at <unknown> (https://nextjs.org/docs/messages/module-not-found)

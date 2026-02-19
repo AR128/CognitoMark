@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { fetchSessionDetail } from "../../api/adminApi";
 
 const SessionDetail = () => {
@@ -10,9 +11,13 @@ const SessionDetail = () => {
   const [responses, setResponses] = useState([]);
 
   const load = async () => {
-    const { data } = await fetchSessionDetail(id);
-    setSession(data.session);
-    setResponses(data.responses);
+    try {
+      const { data } = await fetchSessionDetail(id);
+      setSession(data.session);
+      setResponses(data.responses);
+    } catch (error) {
+      console.error("Failed to load session details", error);
+    }
   };
 
   useEffect(() => {
@@ -31,7 +36,19 @@ const SessionDetail = () => {
 
   return (
     <div className="container">
-      <h2>Session Detail</h2>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "1.5rem",
+        }}
+      >
+        <h2 style={{ margin: 0 }}>Session Detail</h2>
+        <Link href="/admin/sessions" className="btn secondary">
+          &larr; Back to Sessions
+        </Link>
+      </div>
       <div className="card">
         <div className="grid two">
           <div>
@@ -59,9 +76,46 @@ const SessionDetail = () => {
         <h3>Responses</h3>
         <div className="grid">
           {responses.map((r) => (
-            <div key={r.id} className="card" style={{ background: "var(--card-2)" }}>
-              <p><strong>Q:</strong> {r.text}</p>
-              <p><strong>A:</strong> {r.answer || "-"}</p>
+            <div
+              key={r.id}
+              className="card"
+              style={{ background: "var(--card-2)" }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                }}
+              >
+                <p style={{ margin: 0, flex: 1 }}>
+                  <strong>Q:</strong> {r.text}
+                </p>
+                <div style={{ textAlign: "right" }}>
+                  <div className="badge">{r.click_count} total clicks</div>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--muted)",
+                      marginTop: "8px",
+                      display: "grid",
+                      gridTemplateColumns: "repeat(3, 1fr)",
+                      gap: "4px 12px",
+                      textAlign: "left",
+                    }}
+                  >
+                    <span>Header: {r.header_clicks}</span>
+                    <span>Monitoring: {r.integrity_clicks}</span>
+                    <span>Stress Bar: {r.stress_clicks}</span>
+                    <span>Question: {r.question_clicks}</span>
+                    <span>Navigation: {r.footer_clicks}</span>
+                    <span>Other: {r.other_clicks}</span>
+                  </div>
+                </div>
+              </div>
+              <p style={{ marginTop: "1rem", marginBottom: 0 }}>
+                <strong>A:</strong> {r.answer || "-"}
+              </p>
             </div>
           ))}
         </div>

@@ -1,0 +1,23 @@
+
+> exam-portal-frontend@1.0.0 build
+> next build
+
+Γû▓ Next.js 16.1.6 (Turbopack)
+- Environments: .env
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 2.3s
+  Running TypeScript ...
+  Collecting page data using 11 workers ...
+  Generating static pages using 11 workers (0/11) ...
+  Generating static pages using 11 workers (2/11) 
+  Generating static pages using 11 workers (5/11) 
+  Generating static pages using 11 workers (8/11) 
+Error occurred prerendering page "/exam". Read more: https://nextjs.org/docs/messages/prerender-error
+ReferenceError: localStorage is not defined
+    at <unknown> (C:\Users\ACER\Desktop\Ayush\test\test\projects\Exported\Rahidul\Exam_portal_for_Data\frontend\.next\server\chunks\ssr\[root-of-the-server]__4b65c21d._.js:1:1068)
+    at <unknown> (C:\Users\ACER\Desktop\Ayush\test\test\projects\Exported\Rahidul\Exam_portal_for_Data\frontend\.next\server\chunks\ssr\[root-of-the-server]__4b65c21d._.js:1:1050) {
+  digest: '2696451623'
+}
+Export encountered an error on /exam/page: /exam, exiting the build.
+Γ¿» Next.js build worker exited with code: 1 and signal: null

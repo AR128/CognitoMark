@@ -7,6 +7,7 @@ import {
   fetchExams,
   fetchQuestions,
 } from "../../api/adminApi";
+import ConfirmModal from "../../components/ConfirmModal";
 
 const Questions = () => {
   const [exams, setExams] = useState([]);
@@ -15,6 +16,7 @@ const Questions = () => {
   const [form, setForm] = useState({ text: "", type: "mcq", options: "" });
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState(null);
+  const [modal, setModal] = useState({ isOpen: false, id: null });
 
   const loadExams = async () => {
     try {
@@ -47,9 +49,13 @@ const Questions = () => {
 
   const handleCreate = async () => {
     if (!selected || !form.text.trim()) return;
-    const options = form.type === "mcq"
-      ? form.options.split(",").map((o) => o.trim()).filter(Boolean)
-      : [];
+    const options =
+      form.type === "mcq"
+        ? form.options
+            .split(",")
+            .map((o) => o.trim())
+            .filter(Boolean)
+        : [];
 
     try {
       setError("");
@@ -67,10 +73,15 @@ const Questions = () => {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDeleteClick = (id) => {
+    setModal({ isOpen: true, id });
+  };
+
+  const handleConfirmDelete = async () => {
+    const { id } = modal;
+    setModal({ isOpen: false, id: null });
+
     if (deletingId) return;
-    const confirmed = window.confirm("Delete this question and its responses?");
-    if (!confirmed) return;
     try {
       setError("");
       setDeletingId(id);
@@ -86,6 +97,7 @@ const Questions = () => {
   return (
     <div className="container">
       <h2>Questions</h2>
+      {/* ... existing card grid ... */}
       <div className="card grid">
         <select
           className="input"
@@ -104,13 +116,17 @@ const Questions = () => {
           className="input"
           placeholder="Question text"
           value={form.text}
-          onChange={(e) => setForm((prev) => ({ ...prev, text: e.target.value }))}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, text: e.target.value }))
+          }
         />
 
         <select
           className="input"
           value={form.type}
-          onChange={(e) => setForm((prev) => ({ ...prev, type: e.target.value }))}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, type: e.target.value }))
+          }
         >
           <option value="mcq">MCQ</option>
           <option value="text">Text</option>
@@ -121,11 +137,15 @@ const Questions = () => {
             className="input"
             placeholder="Options (comma separated)"
             value={form.options}
-            onChange={(e) => setForm((prev) => ({ ...prev, options: e.target.value }))}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, options: e.target.value }))
+            }
           />
         )}
 
-        <button className="btn" onClick={handleCreate}>Add Question</button>
+        <button className="btn" onClick={handleCreate}>
+          Add Question
+        </button>
       </div>
 
       <div className="card">
@@ -146,7 +166,7 @@ const Questions = () => {
                 <td>
                   <button
                     className="btn danger"
-                    onClick={() => handleDelete(q.id)}
+                    onClick={() => handleDeleteClick(q.id)}
                     disabled={deletingId === q.id}
                   >
                     Delete
@@ -157,6 +177,14 @@ const Questions = () => {
           </tbody>
         </table>
       </div>
+
+      <ConfirmModal
+        isOpen={modal.isOpen}
+        title="Delete Question"
+        message="Are you sure you want to delete this question? This will also remove any student responses associated with it."
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setModal({ isOpen: false, id: null })}
+      />
     </div>
   );
 };

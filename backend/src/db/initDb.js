@@ -70,9 +70,17 @@ CREATE TABLE IF NOT EXISTS click_timeseries (
   session_id INTEGER NOT NULL,
   window_start TEXT NOT NULL,
   window_end TEXT NOT NULL,
+  question_id INTEGER,
+  header_clicks INTEGER NOT NULL DEFAULT 0,
+  integrity_clicks INTEGER NOT NULL DEFAULT 0,
+  stress_clicks INTEGER NOT NULL DEFAULT 0,
+  question_clicks INTEGER NOT NULL DEFAULT 0,
+  footer_clicks INTEGER NOT NULL DEFAULT 0,
+  other_clicks INTEGER NOT NULL DEFAULT 0,
   click_count INTEGER NOT NULL DEFAULT 0,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (session_id) REFERENCES exam_sessions(id)
+  FOREIGN KEY (session_id) REFERENCES exam_sessions(id),
+  FOREIGN KEY (question_id) REFERENCES questions(id)
 );
 `;
 
@@ -90,7 +98,7 @@ export const initDb = async () => {
     const hash = await bcrypt.hash(adminPassword, 10);
     run(
       "INSERT INTO admins (username, password_hash) VALUES (@username, @password_hash)",
-      { username: adminUsername, password_hash: hash }
+      { username: adminUsername, password_hash: hash },
     );
   }
 };

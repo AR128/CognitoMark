@@ -21,10 +21,12 @@ const StartExam = () => {
     try {
       const student = storage.get("student");
       if (!student) {
-        router.push("/login");
+        router.push("/");
         return;
       }
-      const { data } = await startExam(selected, { studentId: student.student_id });
+      const { data } = await startExam(selected, {
+        studentId: student.student_id,
+      });
       storage.set("session", data.session);
       storage.set("exam", data.exam);
       storage.set("questions", data.questions);
@@ -37,12 +39,27 @@ const StartExam = () => {
   };
 
   return (
-    <div className="container">
-      <div className="card" style={{ maxWidth: 520, margin: "0 auto" }}>
-        <h2>Start Exam</h2>
-        <div className="grid">
+    <div className="container centered-page">
+      <div
+        className="card"
+        style={{ maxWidth: 520, width: "100%", padding: "3rem" }}
+      >
+        <h2
+          style={{
+            fontSize: "2rem",
+            marginBottom: "2rem",
+            textAlign: "center",
+          }}
+        >
+          Start Exam
+        </h2>
+        <div className="grid" style={{ gap: "1.5rem" }}>
           <select
             className="input"
+            style={{
+              fontSize: "1.1rem",
+              padding: "14px 16px",
+            }}
             value={selected}
             onChange={(e) => setSelected(e.target.value)}
           >
@@ -54,11 +71,19 @@ const StartExam = () => {
             ))}
           </select>
           {error && (
-            <div className="notice" style={{ color: "var(--danger)" }}>
+            <div
+              className="notice"
+              style={{ color: "var(--danger)", textAlign: "center" }}
+            >
               {error}
             </div>
           )}
-          <button className="btn" onClick={handleStart} disabled={!selected}>
+          <button
+            className="btn"
+            onClick={handleStart}
+            disabled={!selected}
+            style={{ fontSize: "1.1rem", padding: "14px" }}
+          >
             Start Exam
           </button>
         </div>

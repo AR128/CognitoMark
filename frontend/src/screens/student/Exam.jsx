@@ -29,7 +29,8 @@ const resolveViolationThreshold = () => {
 };
 
 const VIOLATION_THRESHOLD = resolveViolationThreshold();
-const VIOLATION_WARNING = "Tab switching or minimizing is not allowed during the exam.";
+const VIOLATION_WARNING =
+  "Tab switching or minimizing is not allowed during the exam.";
 
 const resolveClickWindowMs = () => {
   const rawValue = process.env.NEXT_PUBLIC_CLICK_WINDOW_MS;
@@ -42,15 +43,34 @@ const CLICK_WINDOW_MS = resolveClickWindowMs();
 const StudentExam = () => {
   const [sessionData, setSessionData] = useState(() => storage.get("session"));
   const [exam, setExam] = useState(() => storage.get("exam"));
-  const [questions, setQuestions] = useState(() => storage.get("questions") || []);
-  const [sessionId, setSessionId] = useState(() => localStorage.getItem("sessionId"));
+  const [questions, setQuestions] = useState(
+    () => storage.get("questions") || [],
+  );
+  const [sessionId, setSessionId] = useState(() =>
+    typeof window !== "undefined" ? localStorage.getItem("sessionId") : null,
+  );
 
   const [answers, setAnswers] = useState({});
   const [stress, setStress] = useState(5);
-  const [submitted, setSubmitted] = useState(() => Boolean(storage.get("session")?.submitted_at));
+  const [submitted, setSubmitted] = useState(() =>
+    Boolean(storage.get("session")?.submitted_at),
+  );
   const [status, setStatus] = useState("");
   const [violationCount, setViolationCount] = useState(0);
-  const [violationModal, setViolationModal] = useState({ visible: false, message: "" });
+  const [violationModal, setViolationModal] = useState({
+    visible: false,
+    message: "",
+  });
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+
+  const sectionClicksRef = useRef({
+    header: 0,
+    integrity: 0,
+    stress: 0,
+    question: 0,
+    footer: 0,
+    other: 0,
+  });
 
   const router = useRouter();
   const redirectTimeoutRef = useRef(null);
@@ -61,18 +81,21 @@ const StudentExam = () => {
   const flushInProgressRef = useRef(false);
   const clickTimerRef = useRef(null);
 
-  useEffect(() => () => {
-    if (redirectTimeoutRef.current) {
-      clearTimeout(redirectTimeoutRef.current);
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (redirectTimeoutRef.current) {
+        clearTimeout(redirectTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const clearSessionArtifacts = useCallback(() => {
     ["session", "exam", "questions", "student", "exams"].forEach((key) =>
-      storage.remove(key)
+      storage.remove(key),
     );
     ["studentDbId", "sessionId", "examId"].forEach((key) =>
-      localStorage.removeItem(key)
+      localStorage.removeItem(key),
     );
     setSessionData(null);
     setExam(null);
@@ -102,16 +125,36 @@ const StudentExam = () => {
 
   const queueClickWindow = useCallback(
     async (windowStart, windowEnd, clickCount) => {
+      const currentQuestion = questions[currentQuestionIndex];
+      const sectionClicks = { ...sectionClicksRef.current };
+
+      // Reset section clicks for the next window
+      sectionClicksRef.current = {
+        header: 0,
+        integrity: 0,
+        stress: 0,
+        question: 0,
+        footer: 0,
+        other: 0,
+      };
+
       const payload = {
         windowStart: windowStart.toISOString(),
         windowEnd: windowEnd.toISOString(),
+        questionId: currentQuestion?.id,
+        headerClicks: sectionClicks.header,
+        integrityClicks: sectionClicks.integrity,
+        stressClicks: sectionClicks.stress,
+        questionClicks: sectionClicks.question,
+        footerClicks: sectionClicks.footer,
+        otherClicks: sectionClicks.other,
         clickCount,
       };
       clickQueueRef.current.push(payload);
       await flushClickQueue();
       return clickQueueRef.current.length === 0;
     },
-    [flushClickQueue]
+    [flushClickQueue, questions, currentQuestionIndex],
   );
 
   const closeCurrentWindow = useCallback(
@@ -130,7 +173,7 @@ const StudentExam = () => {
 
       return queueClickWindow(windowStart, windowEnd, clickCount);
     },
-    [queueClickWindow]
+    [queueClickWindow],
   );
 
   const requestFullscreen = useCallback(() => {
@@ -160,15 +203,15 @@ const StudentExam = () => {
       if (redirectTimeoutRef.current) {
         clearTimeout(redirectTimeoutRef.current);
       }
-      router.replace("/login");
+      router.replace("/");
     },
-    [clearSessionArtifacts, closeCurrentWindow, router]
+    [clearSessionArtifacts, closeCurrentWindow, router],
   );
 
   useEffect(() => {
     if (!sessionData?.id || !sessionId || submitted) {
       setStatus((prev) => prev || "Redirecting to login...");
-      router.replace("/login");
+      router.replace("/");
     }
   }, [sessionData, sessionId, submitted, router]);
 
@@ -216,29 +259,40 @@ const StudentExam = () => {
         setViolationCount(data.violationCount);
         if (data.forcedSubmit) {
           await finalizeClientExit(
-            data.message || "Exam auto-submitted due to repeated violations."
+            data.message || "Exam auto-submitted due to repeated violations.",
           );
         }
       } catch (error) {
         setStatus(
           error?.response?.data?.error ||
-            "Violation detected. Please stay on the exam page."
+            "Violation detected. Please stay on the exam page.",
         );
       }
     },
-    [sessionData?.id, submitted, finalizeClientExit]
+    [sessionData?.id, submitted, finalizeClientExit],
   );
 
-  const handleClick = useCallback((event) => {
-    if (!sessionData?.id || submitted) return;
+  const handleClick = useCallback(
+    (event) => {
+      if (!sessionData?.id || submitted) return;
 
-    // Only count clicks within the exam interface
-    const examContainer = document.querySelector(".exam-container");
-    if (examContainer && examContainer.contains(event.target)) {
       requestFullscreen();
       clickCountRef.current += 1;
-    }
-  }, [sessionData?.id, submitted, requestFullscreen]);
+
+      // Identify which section was clicked
+      const clickedSection =
+        event.target.closest("[data-section]")?.dataset.section;
+      if (
+        clickedSection &&
+        sectionClicksRef.current[clickedSection] !== undefined
+      ) {
+        sectionClicksRef.current[clickedSection] += 1;
+      } else {
+        sectionClicksRef.current.other += 1;
+      }
+    },
+    [sessionData?.id, submitted, requestFullscreen],
+  );
 
   useEffect(() => {
     if (!enforcementActive) {
@@ -267,7 +321,7 @@ const StudentExam = () => {
       if (!document.fullscreenElement) {
         handleViolation(
           "FULLSCREEN_EXIT",
-          "Fullscreen mode is required during the exam."
+          "Fullscreen mode is required during the exam.",
         );
       }
     };
@@ -286,7 +340,7 @@ const StudentExam = () => {
         event.stopPropagation();
         handleViolation(
           "TAB_SWITCH",
-          "Keyboard shortcuts are disabled during the exam."
+          "Keyboard shortcuts are disabled during the exam.",
         );
       }
     };
@@ -309,11 +363,14 @@ const StudentExam = () => {
 
   const unansweredQuestions = useMemo(
     () => questions.filter((q) => !hasAnswerValue(answers[q.id])),
-    [questions, answers]
+    [questions, answers],
   );
 
   const canSubmit =
-    !!sessionData?.id && !submitted && questions.length > 0 && unansweredQuestions.length === 0;
+    !!sessionData?.id &&
+    !submitted &&
+    questions.length > 0 &&
+    unansweredQuestions.length === 0;
 
   const debouncedSave = useMemo(
     () =>
@@ -321,7 +378,7 @@ const StudentExam = () => {
         if (!sessionData?.id || submitted) return;
         await saveResponse(sessionData.id, { questionId, answer });
       }, 500),
-    [sessionData?.id, submitted]
+    [sessionData?.id, submitted],
   );
 
   const handleAnswerChange = (questionId, value) => {
@@ -340,7 +397,7 @@ const StudentExam = () => {
   const handleSubmit = async () => {
     if (!sessionData?.id || submitted || !canSubmit) {
       if (!sessionData?.id && !submitted) {
-        router.replace("/login");
+        router.replace("/");
       }
       return;
     }
@@ -353,8 +410,8 @@ const StudentExam = () => {
       if (preparedResponses.length) {
         await Promise.all(
           preparedResponses.map(({ questionId, answer }) =>
-            saveResponse(sessionData.id, { questionId, answer })
-          )
+            saveResponse(sessionData.id, { questionId, answer }),
+          ),
         );
       }
 
@@ -369,10 +426,29 @@ const StudentExam = () => {
       await finalizeClientExit(`${successMessage} Redirecting to login...`);
     } catch (error) {
       const message =
-        error?.response?.data?.error || "Unable to submit exam. Please try again.";
+        error?.response?.data?.error ||
+        "Unable to submit exam. Please try again.";
       setStatus(message);
     }
   };
+
+  const handleNext = async () => {
+    if (currentQuestionIndex < questions.length - 1) {
+      await closeCurrentWindow(new Date());
+      setCurrentQuestionIndex((prev) => prev + 1);
+    }
+  };
+
+  const handlePrevious = async () => {
+    if (currentQuestionIndex > 0) {
+      await closeCurrentWindow(new Date());
+      setCurrentQuestionIndex((prev) => prev - 1);
+    }
+  };
+
+  const currentQuestion = questions[currentQuestionIndex];
+  const isLastQuestion = currentQuestionIndex === questions.length - 1;
+  const isQuestionAnswered = hasAnswerValue(answers[currentQuestion?.id]);
 
   if (!sessionData?.id || !sessionId || submitted) {
     return (
@@ -383,14 +459,14 @@ const StudentExam = () => {
   }
 
   return (
-    <div className="container exam-container">
-      <div className="card">
+    <div className="container exam-container" data-section="container">
+      <div className="card" data-section="header">
         <h2>{exam?.title || "Exam"}</h2>
         <div className="badge">Session #{sessionData.id}</div>
         {submitted && <p className="notice">Submitted</p>}
       </div>
 
-      <div className="card">
+      <div className="card" data-section="integrity">
         <strong>Integrity Monitor</strong>
         <p style={{ margin: "0.3rem 0" }}>
           Violations: {violationCount}/{VIOLATION_THRESHOLD}
@@ -400,7 +476,7 @@ const StudentExam = () => {
         </p>
       </div>
 
-      <div className="card">
+      <div className="card" data-section="stress">
         <label>Stress Level: {stress}</label>
         <input
           type="range"
@@ -412,53 +488,106 @@ const StudentExam = () => {
         />
       </div>
 
-      <div className="card">
-        <h3>Questions</h3>
-        <div className="grid">
-          {questions.map((q) => (
-            <div key={q.id} className="card" style={{ background: "var(--card-2)" }}>
-              <p>{q.text}</p>
-              {q.type === "mcq" ? (
-                <select
-                  className="input"
-                  value={answers[q.id] || ""}
-                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                  disabled={submitted}
-                >
-                  <option value="">Select option</option>
-                  {q.options?.map((opt) => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                </select>
-              ) : (
-                <textarea
-                  className="input"
-                  rows="3"
-                  value={answers[q.id] || ""}
-                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                  disabled={submitted}
-                />
-              )}
-            </div>
-          ))}
-        </div>
+      <div className="card" data-section="question">
+        <h3>
+          Question {currentQuestionIndex + 1} of {questions.length}
+        </h3>
+        {currentQuestion && (
+          <div className="card" style={{ background: "var(--card-2)" }}>
+            <p>{currentQuestion.text}</p>
+            {currentQuestion.type === "mcq" ? (
+              <select
+                className="input"
+                value={answers[currentQuestion.id] || ""}
+                onChange={(e) =>
+                  handleAnswerChange(currentQuestion.id, e.target.value)
+                }
+                disabled={submitted}
+              >
+                <option value="">Select option</option>
+                {currentQuestion.options?.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <textarea
+                className="input"
+                rows="3"
+                value={answers[currentQuestion.id] || ""}
+                onChange={(e) =>
+                  handleAnswerChange(currentQuestion.id, e.target.value)
+                }
+                disabled={submitted}
+              />
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="card">
-        <button className="btn" onClick={handleSubmit} disabled={!canSubmit}>
-          Submit Exam
-        </button>
-        {!submitted && unansweredQuestions.length > 0 && (
-          <p style={{ marginTop: "0.5rem", fontSize: "0.9rem" }}>
-            Answer all questions to submit ({unansweredQuestions.length} remaining)
-          </p>
-        )}
-        {status && (
-          <p className="notice" style={{ marginTop: "0.5rem" }}>
-            {status}
+      <div
+        className="card"
+        data-section="footer"
+        style={{
+          display: "flex",
+          gap: "1rem",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div style={{ display: "flex", gap: "1rem" }}>
+          <button
+            className="btn"
+            onClick={handlePrevious}
+            disabled={currentQuestionIndex === 0 || submitted}
+            style={{
+              background:
+                currentQuestionIndex === 0 ? "var(--border)" : "var(--primary)",
+            }}
+          >
+            Previous
+          </button>
+          {!isLastQuestion ? (
+            <button
+              className="btn"
+              onClick={handleNext}
+              disabled={!isQuestionAnswered || submitted}
+              style={{
+                background: !isQuestionAnswered
+                  ? "var(--border)"
+                  : "var(--primary)",
+              }}
+            >
+              Next
+            </button>
+          ) : (
+            <button
+              className="btn"
+              onClick={handleSubmit}
+              disabled={!canSubmit || submitted}
+              style={{
+                background: !canSubmit ? "var(--border)" : "var(--primary)",
+              }}
+            >
+              Submit Exam
+            </button>
+          )}
+        </div>
+        {!submitted && !isQuestionAnswered && (
+          <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--accent)" }}>
+            Please answer current question to proceed
           </p>
         )}
       </div>
+
+      {status && (
+        <div className="card">
+          <p className="notice" style={{ margin: 0 }}>
+            {status}
+          </p>
+        </div>
+      )}
 
       {violationModal.visible && (
         <div

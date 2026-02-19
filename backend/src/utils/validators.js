@@ -33,6 +33,13 @@ export const clicksSchema = z.object({
 export const clickFrequencySchema = z.object({
   windowStart: z.string().min(1),
   windowEnd: z.string().min(1),
+  questionId: z.number().int().optional(),
+  headerClicks: z.number().int().nonnegative().optional(),
+  integrityClicks: z.number().int().nonnegative().optional(),
+  stressClicks: z.number().int().nonnegative().optional(),
+  questionClicks: z.number().int().nonnegative().optional(),
+  footerClicks: z.number().int().nonnegative().optional(),
+  otherClicks: z.number().int().nonnegative().optional(),
   clickCount: z.number().int().nonnegative(),
 });
 
