@@ -185,6 +185,17 @@ const StudentExam = () => {
     }
   }, []);
 
+  const exitFullscreen = useCallback(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {
+        /* ignore */
+      });
+    }
+  }, []);
+
   const finalizeClientExit = useCallback(
     async (message) => {
       setSubmitted(true);
@@ -195,25 +206,29 @@ const StudentExam = () => {
       }
       await closeCurrentWindow(new Date());
       clearSessionArtifacts();
-      if (document.fullscreenElement && document.exitFullscreen) {
-        document.exitFullscreen().catch(() => {
-          /* ignore */
-        });
-      }
+      exitFullscreen();
       if (redirectTimeoutRef.current) {
         clearTimeout(redirectTimeoutRef.current);
       }
       router.replace("/");
     },
-    [clearSessionArtifacts, closeCurrentWindow, router],
+    [clearSessionArtifacts, closeCurrentWindow, exitFullscreen, router],
   );
 
   useEffect(() => {
     if (!sessionData?.id || !sessionId || submitted) {
       setStatus((prev) => prev || "Redirecting to login...");
+      exitFullscreen();
       router.replace("/");
     }
-  }, [sessionData, sessionId, submitted, router]);
+  }, [sessionData, sessionId, submitted, exitFullscreen, router]);
+
+  useEffect(
+    () => () => {
+      exitFullscreen();
+    },
+    [exitFullscreen],
+  );
 
   useEffect(() => {
     if (enforcementActive) {

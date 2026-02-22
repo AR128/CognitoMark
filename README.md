@@ -64,6 +64,24 @@ A state-of-the-art, real-time examination platform with advanced telemetry, gran
    # Create a .env file based on .env.example
    npm run dev
    ```
+
+### Docker (Recommended)
+
+Run the full stack (backend, frontend, nginx proxy) using Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+- Frontend (via nginx): `http://localhost:8080`
+- Backend API (via nginx): `http://localhost:8080/api/...`
+- Direct backend (container network only): `http://backend:5000`
+
+To stop everything:
+
+```bash
+docker compose down
+```
 3. **Setup Frontend**
    ```bash
    cd frontend
@@ -84,6 +102,15 @@ A state-of-the-art, real-time examination platform with advanced telemetry, gran
 
 - `NEXT_PUBLIC_API_URL`: Backend API endpoint
 - `NEXT_PUBLIC_SOCKET_URL`: Backend Socket.IO endpoint
+
+### Reverse Proxy (nginx)
+
+The nginx container proxies the app and API:
+
+- `/` -> frontend container (`frontend:3000`)
+- `/api/*` -> backend container (`backend:5000`)
+
+This allows the frontend to call the API at the same origin (`http://localhost:8080`).
 
 ---
 

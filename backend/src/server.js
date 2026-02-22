@@ -13,7 +13,7 @@ const server = http.createServer(app);
 await initDb();
 initSockets(server);
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   // eslint-disable-next-line no-console
   console.log(`Backend running on http://localhost:${PORT}`);
 });
