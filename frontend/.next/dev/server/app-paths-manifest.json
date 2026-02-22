@@ -1,4 +1,12 @@
 {
   "/admin/dashboard/page": "app/admin/dashboard/page.js",
-  "/page": "app/page.js"
+  "/admin/exams/page": "app/admin/exams/page.js",
+  "/admin/page": "app/admin/page.js",
+  "/admin/questions/page": "app/admin/questions/page.js",
+  "/admin/session/[id]/page": "app/admin/session/[id]/page.js",
+  "/admin/sessions/page": "app/admin/sessions/page.js",
+  "/admin/students/page": "app/admin/students/page.js",
+  "/exam/page": "app/exam/page.js",
+  "/page": "app/page.js",
+  "/start/page": "app/start/page.js"
 }

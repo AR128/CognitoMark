@@ -1,1 +1,0 @@
-{"version":3,"sources":["../../../../src/app/page.jsx"],"sourcesContent":["import StudentLogin from \"../screens/student/Login\";\r\n\r\nconst Page = () => <StudentLogin />;\r\n\r\nexport default Page;\r\n"],"names":[],"mappings":"6LAAA,EAAA,EAAA,CAAA,CAAA,wBAEa,IAAM,CAAA,EAAA,EAAA,GAAA,EAAC,EAAA,OAAY,CAAA,CAAA"}
