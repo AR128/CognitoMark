@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { deleteStudent, fetchStudents } from "../../api/adminApi";
-import { io } from "socket.io-client";
 import ConfirmModal from "../../components/ConfirmModal";
+import { useSocket } from "../../hooks/useSocket";
 
 const Students = () => {
   const [students, setStudents] = useState([]);
@@ -23,23 +23,17 @@ const Students = () => {
 
   useEffect(() => {
     load();
-
-    const socket = io(
-      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5000",
-    );
-
-    socket.on("student_created", () => {
-      load();
-    });
-
-    socket.on("student_deleted", () => {
-      load();
-    });
-
-    return () => {
-      socket.disconnect();
-    };
   }, []);
+
+  const handlers = useMemo(
+    () => ({
+      student_created: () => load(),
+      student_deleted: () => load(),
+    }),
+    [],
+  );
+
+  useSocket(handlers);
 
   const handleDeleteClick = (id) => {
     setModal({ isOpen: true, id });

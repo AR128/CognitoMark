@@ -51,7 +51,7 @@ const StudentExam = () => {
   );
 
   const [answers, setAnswers] = useState({});
-  const [stress, setStress] = useState(5);
+  const [stress, setStress] = useState(0);
   const [submitted, setSubmitted] = useState(() =>
     Boolean(storage.get("session")?.submitted_at),
   );
@@ -102,7 +102,7 @@ const StudentExam = () => {
     setQuestions([]);
     setSessionId(null);
     setAnswers({});
-    setStress(5);
+    setStress(0);
     setViolationCount(0);
     setViolationModal({ visible: false, message: "" });
   }, []);
@@ -145,6 +145,7 @@ const StudentExam = () => {
         headerClicks: sectionClicks.header,
         integrityClicks: sectionClicks.integrity,
         stressClicks: sectionClicks.stress,
+        stressLevel: stress,
         questionClicks: sectionClicks.question,
         footerClicks: sectionClicks.footer,
         otherClicks: sectionClicks.other,
@@ -154,7 +155,7 @@ const StudentExam = () => {
       await flushClickQueue();
       return clickQueueRef.current.length === 0;
     },
-    [flushClickQueue, questions, currentQuestionIndex],
+    [flushClickQueue, questions, currentQuestionIndex, stress],
   );
 
   const closeCurrentWindow = useCallback(
@@ -409,6 +410,20 @@ const StudentExam = () => {
     }
   };
 
+  const stressLabel = useMemo(() => {
+    if (stress <= 1) return "Low stress";
+    if (stress >= 9) return "High stress";
+    return "Moderate stress";
+  }, [stress]);
+
+  useEffect(() => {
+    if (!sessionData?.id || submitted) {
+      return;
+    }
+    setStress(0);
+    updateStress(sessionData.id, { stressLevel: 0 });
+  }, [currentQuestionIndex, sessionData?.id, submitted]);
+
   const handleSubmit = async () => {
     if (!sessionData?.id || submitted || !canSubmit) {
       if (!sessionData?.id && !submitted) {
@@ -475,57 +490,81 @@ const StudentExam = () => {
 
   return (
     <div className="container exam-container" data-section="container">
-      <div className="card" data-section="header">
-        <h2>{exam?.title || "Exam"}</h2>
-        <div className="badge">Session #{sessionData.id}</div>
-        {submitted && <p className="notice">Submitted</p>}
+      <div className="card exam-header" data-section="header">
+        <div className="exam-header-top">
+          <h2 className="exam-title">{exam?.title || "Exam"}</h2>
+          {submitted && <span className="badge">Submitted</span>}
+        </div>
+        <div className="exam-header-meta">
+          <div className="exam-violations">
+            Violations: {violationCount}/{VIOLATION_THRESHOLD}
+          </div>
+          <div className="exam-notice">
+            Leaving or minimizing this window will end your exam.
+          </div>
+        </div>
       </div>
 
-      <div className="card" data-section="integrity">
-        <strong>Integrity Monitor</strong>
-        <p style={{ margin: "0.3rem 0" }}>
-          Violations: {violationCount}/{VIOLATION_THRESHOLD}
-        </p>
-        <p className="notice" style={{ margin: 0 }}>
-          Leaving or minimizing this window will end your exam.
-        </p>
-      </div>
-
-      <div className="card" data-section="stress">
-        <label>Stress Level: {stress}</label>
+      <div
+        className={`card exam-stress stress-${
+          stress <= 1 ? "low" : stress >= 9 ? "high" : "mid"
+        }`}
+        data-section="stress"
+      >
+        <div className="stress-header">
+          <div>
+            <div className="stress-title">Stress Level</div>
+            <div className="stress-value">{stressLabel}</div>
+          </div>
+          <div className="stress-pill">{stress}/10</div>
+        </div>
         <input
+          className="stress-range"
           type="range"
-          min="1"
+          min="0"
           max="10"
           value={stress}
           onChange={(e) => handleStress(e.target.value)}
           disabled={submitted}
         />
+        <div className="stress-scale">
+          <span>0</span>
+          <span>5</span>
+          <span>10</span>
+        </div>
       </div>
 
       <div className="card" data-section="question">
-        <h3>
-          Question {currentQuestionIndex + 1} of {questions.length}
-        </h3>
+        <h3 className="question-title">Question {currentQuestionIndex + 1}.</h3>
         {currentQuestion && (
-          <div className="card" style={{ background: "var(--card-2)" }}>
+          <div className="card question-body" style={{ background: "var(--card-2)" }}>
             <p>{currentQuestion.text}</p>
             {currentQuestion.type === "mcq" ? (
-              <select
-                className="input"
-                value={answers[currentQuestion.id] || ""}
-                onChange={(e) =>
-                  handleAnswerChange(currentQuestion.id, e.target.value)
-                }
-                disabled={submitted}
+              <div
+                className={`mcq-options${
+                  currentQuestion.options?.some((opt) =>
+                    String(opt).trim().length > 28,
+                  )
+                    ? " single-column"
+                    : ""
+                }`}
               >
-                <option value="">Select option</option>
                 {currentQuestion.options?.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
+                  <label key={opt} className="mcq-option">
+                    <input
+                      type="radio"
+                      name={`question-${currentQuestion.id}`}
+                      value={opt}
+                      checked={answers[currentQuestion.id] === opt}
+                      onChange={(e) =>
+                        handleAnswerChange(currentQuestion.id, e.target.value)
+                      }
+                      disabled={submitted}
+                    />
+                    <span>{opt}</span>
+                  </label>
                 ))}
-              </select>
+              </div>
             ) : (
               <textarea
                 className="input"
@@ -537,62 +576,54 @@ const StudentExam = () => {
                 disabled={submitted}
               />
             )}
+            <div className="question-actions" data-section="footer">
+              <div className="question-actions-buttons">
+                <button
+                  className="btn"
+                  onClick={handlePrevious}
+                  disabled={currentQuestionIndex === 0 || submitted}
+                  style={{
+                    background:
+                      currentQuestionIndex === 0
+                        ? "var(--border)"
+                        : "var(--primary)",
+                  }}
+                >
+                  Previous
+                </button>
+                {!isLastQuestion ? (
+                  <button
+                    className="btn"
+                    onClick={handleNext}
+                    disabled={!isQuestionAnswered || submitted}
+                    style={{
+                      background: !isQuestionAnswered
+                        ? "var(--border)"
+                        : "var(--primary)",
+                    }}
+                  >
+                    Next
+                  </button>
+                ) : (
+                  <button
+                    className="btn"
+                    onClick={handleSubmit}
+                    disabled={!canSubmit || submitted}
+                    style={{
+                      background: !canSubmit ? "var(--border)" : "var(--primary)",
+                    }}
+                  >
+                    Submit Exam
+                  </button>
+                )}
+              </div>
+              {!submitted && !isQuestionAnswered && (
+                <p className="question-warning">
+                  Please answer current question to proceed
+                </p>
+              )}
+            </div>
           </div>
-        )}
-      </div>
-
-      <div
-        className="card"
-        data-section="footer"
-        style={{
-          display: "flex",
-          gap: "1rem",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <div style={{ display: "flex", gap: "1rem" }}>
-          <button
-            className="btn"
-            onClick={handlePrevious}
-            disabled={currentQuestionIndex === 0 || submitted}
-            style={{
-              background:
-                currentQuestionIndex === 0 ? "var(--border)" : "var(--primary)",
-            }}
-          >
-            Previous
-          </button>
-          {!isLastQuestion ? (
-            <button
-              className="btn"
-              onClick={handleNext}
-              disabled={!isQuestionAnswered || submitted}
-              style={{
-                background: !isQuestionAnswered
-                  ? "var(--border)"
-                  : "var(--primary)",
-              }}
-            >
-              Next
-            </button>
-          ) : (
-            <button
-              className="btn"
-              onClick={handleSubmit}
-              disabled={!canSubmit || submitted}
-              style={{
-                background: !canSubmit ? "var(--border)" : "var(--primary)",
-              }}
-            >
-              Submit Exam
-            </button>
-          )}
-        </div>
-        {!submitted && !isQuestionAnswered && (
-          <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--accent)" }}>
-            Please answer current question to proceed
-          </p>
         )}
       </div>
 

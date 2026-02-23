@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { fetchSessionDetail } from "../../api/adminApi";
+import { useSocket } from "../../hooks/useSocket";
+import ExcelJS from "exceljs";
 
 const SessionDetail = () => {
   const { id } = useParams();
@@ -20,11 +22,107 @@ const SessionDetail = () => {
     }
   };
 
+  const exportSessionToExcel = async () => {
+    if (!session) return;
+
+    const workbook = new ExcelJS.Workbook();
+    const summary = workbook.addWorksheet("Summary");
+    summary.columns = [
+      { header: "Field", key: "field", width: 18 },
+      { header: "Value", key: "value", width: 36 },
+    ];
+
+    summary.addRows([
+      ["Student", `${session.student_id} - ${session.name}`],
+      ["Exam", session.exam_title],
+      ["Clicks", session.total_clicks],
+      ["Avg Stress", Math.round(Number(session.avg_stress_level || 0))],
+      ["Started", session.started_at],
+      ["Submitted", session.submitted_at || "Not yet"],
+    ]);
+    summary.getRow(1).font = { bold: true };
+
+    const responsesSheet = workbook.addWorksheet("Responses");
+    responsesSheet.columns = [
+      { header: "Question", key: "question", width: 40 },
+      { header: "Answer", key: "answer", width: 28 },
+      { header: "Stress", key: "stress", width: 10 },
+      { header: "Total Clicks", key: "total", width: 14 },
+      { header: "Header", key: "header", width: 10 },
+      { header: "Stress Bar", key: "stressBar", width: 12 },
+      { header: "Question Clicks", key: "questionClicks", width: 16 },
+      { header: "Navigation", key: "navigation", width: 12 },
+      { header: "Other", key: "other", width: 10 },
+    ];
+
+    responses.forEach((r) => {
+      responsesSheet.addRow([
+        r.text,
+        r.answer || "-",
+        Math.round(Number(r.avg_stress_level || 0)),
+        r.click_count,
+        r.header_clicks,
+        r.stress_clicks,
+        r.question_clicks,
+        r.footer_clicks,
+        r.other_clicks,
+      ]);
+    });
+
+    responsesSheet.getRow(1).font = { bold: true };
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `session_${session.id}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     if (id) {
       load();
     }
   }, [id]);
+
+  const handlers = useMemo(
+    () => ({
+      click_update: (payload) => {
+        if (String(payload.sessionId) === String(id)) {
+          load();
+        }
+      },
+      click_window: (payload) => {
+        if (String(payload.sessionId) === String(id)) {
+          load();
+        }
+      },
+      stress_update: (payload) => {
+        if (String(payload.sessionId) === String(id)) {
+          load();
+        }
+      },
+      answer_saved: (payload) => {
+        if (String(payload.sessionId) === String(id)) {
+          load();
+        }
+      },
+      exam_submitted: (payload) => {
+        if (String(payload.sessionId) === String(id)) {
+          load();
+        }
+      },
+    }),
+    [id],
+  );
+
+  useSocket(handlers);
 
   if (!session) {
     return (
@@ -42,12 +140,18 @@ const SessionDetail = () => {
           justifyContent: "space-between",
           alignItems: "center",
           marginBottom: "1.5rem",
+          gap: "12px",
         }}
       >
         <h2 style={{ margin: 0 }}>Session Detail</h2>
-        <Link href="/admin/sessions" className="btn secondary">
-          &larr; Back to Sessions
-        </Link>
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button className="btn export-btn" type="button" onClick={exportSessionToExcel}>
+            Export Excel
+          </button>
+          <Link href="/admin/sessions" className="btn secondary">
+            &larr; Back to Sessions
+          </Link>
+        </div>
       </div>
       <div className="card">
         <div className="grid two">
@@ -61,7 +165,8 @@ const SessionDetail = () => {
             <strong>Clicks:</strong> {session.total_clicks}
           </div>
           <div>
-            <strong>Stress:</strong> {session.stress_level}
+            <strong>Avg Stress:</strong>{" "}
+            {Math.round(Number(session.avg_stress_level || 0))}
           </div>
           <div>
             <strong>Started:</strong> {session.started_at}
@@ -93,19 +198,22 @@ const SessionDetail = () => {
                 </p>
                 <div style={{ textAlign: "right" }}>
                   <div className="badge">{r.click_count} total clicks</div>
+                  <div style={{ marginTop: "6px", fontSize: "12px" }}>
+                    <strong>Stress:</strong>{" "}
+                    {Math.round(Number(r.avg_stress_level || 0))}
+                  </div>
                   <div
                     style={{
                       fontSize: "11px",
                       color: "var(--muted)",
                       marginTop: "8px",
                       display: "grid",
-                      gridTemplateColumns: "repeat(3, 1fr)",
-                      gap: "4px 12px",
+                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                      gap: "6px 14px",
                       textAlign: "left",
                     }}
                   >
                     <span>Header: {r.header_clicks}</span>
-                    <span>Monitoring: {r.integrity_clicks}</span>
                     <span>Stress Bar: {r.stress_clicks}</span>
                     <span>Question: {r.question_clicks}</span>
                     <span>Navigation: {r.footer_clicks}</span>
