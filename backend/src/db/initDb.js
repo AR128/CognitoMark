@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS click_timeseries (
   header_clicks INTEGER NOT NULL DEFAULT 0,
   integrity_clicks INTEGER NOT NULL DEFAULT 0,
   stress_clicks INTEGER NOT NULL DEFAULT 0,
+  stress_level INTEGER NOT NULL DEFAULT 0,
   question_clicks INTEGER NOT NULL DEFAULT 0,
   footer_clicks INTEGER NOT NULL DEFAULT 0,
   other_clicks INTEGER NOT NULL DEFAULT 0,
@@ -86,6 +87,17 @@ CREATE TABLE IF NOT EXISTS click_timeseries (
 
 export const initDb = async () => {
   db.exec(schema);
+
+  const clickColumns = db
+    .prepare("PRAGMA table_info(click_timeseries)")
+    .all()
+    .map((column) => column.name);
+
+  if (!clickColumns.includes("stress_level")) {
+    run(
+      "ALTER TABLE click_timeseries ADD COLUMN stress_level INTEGER DEFAULT 0",
+    );
+  }
 
   const adminUsername = process.env.ADMIN_USERNAME || "admin";
   const adminPassword = process.env.ADMIN_PASSWORD || "admin123";

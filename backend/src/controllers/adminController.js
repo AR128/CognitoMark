@@ -55,9 +55,13 @@ export const getDashboardLive = (req, res, next) => {
               s.student_id,
               s.name,
               e.title as exam_title,
-              es.stress_level,
               es.started_at,
               es.submitted_at,
+              COALESCE((
+                SELECT AVG(ct.stress_level)
+                FROM click_timeseries ct
+                WHERE ct.session_id = es.id
+              ), 0) AS avg_stress_level,
               COALESCE((
                 SELECT SUM(ct.click_count)
                 FROM click_timeseries ct
@@ -141,6 +145,7 @@ export const createExam = (req, res, next) => {
     const exam = get("SELECT * FROM exams WHERE id = @id", {
       id: info.lastInsertRowid,
     });
+    getIo().emit("exam_created", { examId: exam.id });
     return res.status(201).json(exam);
   } catch (error) {
     return next(error);
@@ -181,6 +186,7 @@ export const deleteExam = (req, res, next) => {
     if (!result.changes) {
       return res.status(404).json({ error: "Exam not found" });
     }
+    getIo().emit("exam_deleted", { examId });
     return res.json({ success: true });
   } catch (error) {
     return next(error);
@@ -219,6 +225,10 @@ export const createQuestion = (req, res, next) => {
     );
     const question = get("SELECT * FROM questions WHERE id = @id", {
       id: info.lastInsertRowid,
+    });
+    getIo().emit("question_created", {
+      questionId: question.id,
+      examId: question.exam_id,
     });
     return res.status(201).json({
       ...question,
@@ -260,6 +270,7 @@ export const deleteQuestion = (req, res, next) => {
     if (!result.changes) {
       return res.status(404).json({ error: "Question not found" });
     }
+    getIo().emit("question_deleted", { questionId });
     return res.json({ success: true });
   } catch (error) {
     return next(error);
@@ -277,35 +288,50 @@ export const getStudents = (req, res, next) => {
 
 export const deleteStudent = (req, res, next) => {
   try {
-    const studentId = Number(req.params.id);
-
-    const tx = db.transaction((id) => {
-      run(
-        "DELETE FROM responses WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
-        { student_id: id },
-      );
-      run(
-        "DELETE FROM telemetry_events WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
-        { student_id: id },
-      );
-      run(
-        "DELETE FROM click_timeseries WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
-        { student_id: id },
-      );
-      run("DELETE FROM exam_sessions WHERE student_id = @student_id", {
-        student_id: id,
+    const deleteById = (id) => {
+      const tx = db.transaction((studentDbId) => {
+        run(
+          "DELETE FROM responses WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
+          { student_id: studentDbId },
+        );
+        run(
+          "DELETE FROM telemetry_events WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
+          { student_id: studentDbId },
+        );
+        run(
+          "DELETE FROM click_timeseries WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
+          { student_id: studentDbId },
+        );
+        run("DELETE FROM exam_sessions WHERE student_id = @student_id", {
+          student_id: studentDbId,
+        });
+        return run("DELETE FROM students WHERE id = @student_id", {
+          student_id: studentDbId,
+        });
       });
-      return run("DELETE FROM students WHERE id = @student_id", {
-        student_id: id,
-      });
-    });
 
-    const result = tx(studentId);
-    if (!result.changes) {
+      return tx(id);
+    };
+
+    const rawId = req.params.id;
+    const parsedId = Number(rawId);
+    let result = Number.isFinite(parsedId) ? deleteById(parsedId) : null;
+
+    if (!result?.changes) {
+      const student = get(
+        "SELECT id FROM students WHERE student_id = @student_id",
+        { student_id: rawId },
+      );
+      if (student?.id) {
+        result = deleteById(student.id);
+      }
+    }
+
+    if (!result?.changes) {
       return res.status(404).json({ error: "Student not found" });
     }
 
-    getIo().emit("student_deleted", { studentId });
+    getIo().emit("student_deleted", { studentId: rawId });
     getIo().emit("session_deleted"); // Notify sessions list to refresh
 
     return res.json({ success: true });
@@ -319,6 +345,12 @@ export const getSessions = (req, res, next) => {
     const sessions = all(
       `SELECT es.id, s.student_id, s.name, e.title as exam_title,
               (SELECT COALESCE(SUM(click_count), 0) FROM click_timeseries WHERE session_id = es.id) as total_clicks,
+              (SELECT COALESCE(SUM(header_clicks), 0) FROM click_timeseries WHERE session_id = es.id) as header_clicks,
+              (SELECT COALESCE(SUM(stress_clicks), 0) FROM click_timeseries WHERE session_id = es.id) as stress_clicks,
+              (SELECT COALESCE(SUM(question_clicks), 0) FROM click_timeseries WHERE session_id = es.id) as question_clicks,
+              (SELECT COALESCE(SUM(footer_clicks), 0) FROM click_timeseries WHERE session_id = es.id) as navigation_clicks,
+              (SELECT COALESCE(SUM(other_clicks), 0) FROM click_timeseries WHERE session_id = es.id) as other_clicks,
+              (SELECT COALESCE(AVG(stress_level), 0) FROM click_timeseries WHERE session_id = es.id) as avg_stress_level,
               es.stress_level, es.started_at, es.submitted_at
        FROM exam_sessions es
        JOIN students s ON s.id = es.student_id
@@ -335,7 +367,10 @@ export const getSessionDetail = (req, res, next) => {
   try {
     const session = get(
       `SELECT es.*, s.student_id, s.name, e.title as exam_title,
-              (SELECT COALESCE(SUM(click_count), 0) FROM click_timeseries WHERE session_id = es.id) as total_clicks
+              (SELECT COALESCE(SUM(click_count), 0) FROM click_timeseries WHERE session_id = es.id) as total_clicks,
+              (SELECT COALESCE(AVG(stress_level), 0)
+               FROM click_timeseries
+               WHERE session_id = es.id) as avg_stress_level
        FROM exam_sessions es
        JOIN students s ON s.id = es.student_id
        JOIN exams e ON e.id = es.exam_id
@@ -357,6 +392,9 @@ export const getSessionDetail = (req, res, next) => {
               (SELECT COALESCE(SUM(stress_clicks), 0) 
                FROM click_timeseries 
                WHERE session_id = r.session_id AND question_id = r.question_id) as stress_clicks,
+            (SELECT COALESCE(AVG(stress_level), 0)
+             FROM click_timeseries
+             WHERE session_id = r.session_id AND question_id = r.question_id) as avg_stress_level,
               (SELECT COALESCE(SUM(question_clicks), 0) 
                FROM click_timeseries 
                WHERE session_id = r.session_id AND question_id = r.question_id) as question_clicks,

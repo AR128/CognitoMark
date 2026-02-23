@@ -37,6 +37,7 @@ export const clickFrequencySchema = z.object({
   headerClicks: z.number().int().nonnegative().optional(),
   integrityClicks: z.number().int().nonnegative().optional(),
   stressClicks: z.number().int().nonnegative().optional(),
+  stressLevel: z.number().int().min(0).max(10).optional(),
   questionClicks: z.number().int().nonnegative().optional(),
   footerClicks: z.number().int().nonnegative().optional(),
   otherClicks: z.number().int().nonnegative().optional(),
@@ -44,7 +45,7 @@ export const clickFrequencySchema = z.object({
 });
 
 export const stressSchema = z.object({
-  stressLevel: z.number().int().min(1).max(10),
+  stressLevel: z.number().int().min(0).max(10),
 });
 
 export const submitSchema = z.object({

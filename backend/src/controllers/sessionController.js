@@ -166,6 +166,7 @@ export const logClickFrequency = (req, res, next) => {
       headerClicks,
       integrityClicks,
       stressClicks,
+      stressLevel,
       questionClicks,
       footerClicks,
       otherClicks,
@@ -206,12 +207,14 @@ export const logClickFrequency = (req, res, next) => {
       `INSERT INTO click_timeseries (
          session_id, window_start, window_end, question_id,
          header_clicks, integrity_clicks, stress_clicks,
+         stress_level,
          question_clicks, footer_clicks, other_clicks,
          click_count
        )
        VALUES (
          @session_id, @window_start, @window_end, @question_id,
          @header_clicks, @integrity_clicks, @stress_clicks,
+         @stress_level,
          @question_clicks, @footer_clicks, @other_clicks,
          @click_count
        )`,
@@ -223,6 +226,9 @@ export const logClickFrequency = (req, res, next) => {
         header_clicks: headerClicks || 0,
         integrity_clicks: integrityClicks || 0,
         stress_clicks: stressClicks || 0,
+        stress_level: Number.isFinite(Number(stressLevel))
+          ? Number(stressLevel)
+          : 0,
         question_clicks: questionClicks || 0,
         footer_clicks: footerClicks || 0,
         other_clicks: otherClicks || 0,

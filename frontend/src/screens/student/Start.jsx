@@ -10,6 +10,7 @@ const StartExam = () => {
   const [exams, setExams] = useState([]);
   const [selected, setSelected] = useState("");
   const [error, setError] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     const saved = storage.get("exams") || [];
@@ -54,22 +55,16 @@ const StartExam = () => {
           Start Exam
         </h2>
         <div className="grid" style={{ gap: "1.5rem" }}>
-          <select
-            className="input"
-            style={{
-              fontSize: "1.1rem",
-              padding: "14px 16px",
-            }}
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
+          <button
+            className="btn secondary"
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            style={{ fontSize: "1.05rem", padding: "14px 16px" }}
           >
-            <option value="">Select an exam</option>
-            {exams.map((exam) => (
-              <option key={exam.id} value={exam.id}>
-                {exam.title}
-              </option>
-            ))}
-          </select>
+            {selected
+              ? `Selected: ${exams.find((e) => String(e.id) === selected)?.title || "Exam"}`
+              : "Select an exam"}
+          </button>
           {error && (
             <div
               className="notice"
@@ -88,6 +83,47 @@ const StartExam = () => {
           </button>
         </div>
       </div>
+      {pickerOpen && (
+        <div className="modal-backdrop" onClick={() => setPickerOpen(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Select an exam</h3>
+            </div>
+            <div className="modal-body">
+              {exams.length === 0 ? (
+                <p>No exams available.</p>
+              ) : (
+                <div className="exam-picker">
+                  {exams.map((exam) => (
+                    <button
+                      key={exam.id}
+                      type="button"
+                      className={`exam-option${
+                        String(exam.id) === selected ? " selected" : ""
+                      }`}
+                      onClick={() => {
+                        setSelected(String(exam.id));
+                        setPickerOpen(false);
+                      }}
+                    >
+                      {exam.title}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn secondary"
+                type="button"
+                onClick={() => setPickerOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

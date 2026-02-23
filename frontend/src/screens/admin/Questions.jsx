@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   createQuestion,
   deleteQuestion,
@@ -8,6 +8,7 @@ import {
   fetchQuestions,
 } from "../../api/adminApi";
 import ConfirmModal from "../../components/ConfirmModal";
+import { useSocket } from "../../hooks/useSocket";
 
 const Questions = () => {
   const [exams, setExams] = useState([]);
@@ -46,6 +47,31 @@ const Questions = () => {
   useEffect(() => {
     loadQuestions(selected);
   }, [selected]);
+
+  const handlers = useMemo(
+    () => ({
+      exam_created: () => loadExams(),
+      exam_deleted: () => {
+        loadExams();
+        if (selected) {
+          loadQuestions(selected);
+        }
+      },
+      question_created: (payload) => {
+        if (selected && String(payload.examId) === String(selected)) {
+          loadQuestions(selected);
+        }
+      },
+      question_deleted: () => {
+        if (selected) {
+          loadQuestions(selected);
+        }
+      },
+    }),
+    [selected],
+  );
+
+  useSocket(handlers);
 
   const handleCreate = async () => {
     if (!selected || !form.text.trim()) return;

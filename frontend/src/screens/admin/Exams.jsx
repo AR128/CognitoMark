@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createExam, deleteExam, fetchExams } from "../../api/adminApi";
 import ConfirmModal from "../../components/ConfirmModal";
+import { useSocket } from "../../hooks/useSocket";
 
 const Exams = () => {
   const [exams, setExams] = useState([]);
@@ -24,6 +25,16 @@ const Exams = () => {
   useEffect(() => {
     load();
   }, []);
+
+  const handlers = useMemo(
+    () => ({
+      exam_created: () => load(),
+      exam_deleted: () => load(),
+    }),
+    [],
+  );
+
+  useSocket(handlers);
 
   const handleCreate = async () => {
     if (!title.trim()) return;
