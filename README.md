@@ -51,7 +51,7 @@ A state-of-the-art, real-time examination platform with advanced telemetry, gran
 
 ### Prerequisites
 
-- Node.js (v18+)
+- Node.js (v24.12+)
 - npm / pnpm / yarn
 
 ### Installation

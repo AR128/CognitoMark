@@ -16,6 +16,6 @@
     "socket.io-client": "^4.7.5"
   },
   "engines": {
-    "node": ">=20 <21"
+    "node": ">=24.12 <25"
   }
 }
