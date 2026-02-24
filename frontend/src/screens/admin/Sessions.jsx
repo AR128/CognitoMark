@@ -8,6 +8,9 @@ import ExcelJS from "exceljs";
 
 const Sessions = () => {
   const [sessions, setSessions] = useState([]);
+  const clickWindowSeconds = Math.round(
+    (Number(process.env.NEXT_PUBLIC_CLICK_WINDOW_MS) || 60000) / 1000,
+  );
 
   const exportToExcel = async () => {
     if (!sessions.length) return;
@@ -95,6 +98,14 @@ const Sessions = () => {
     });
 
     const workbook = new ExcelJS.Workbook();
+    const metaSheet = workbook.addWorksheet("Metadata");
+    metaSheet.columns = [
+      { header: "Field", key: "field", width: 22 },
+      { header: "Value", key: "value", width: 20 },
+    ];
+    metaSheet.addRow(["Click Window (sec)", clickWindowSeconds]);
+    metaSheet.getRow(1).font = { bold: true };
+
     const worksheet = workbook.addWorksheet("Sessions");
 
     const widths = [
@@ -214,6 +225,7 @@ const Sessions = () => {
                 <th>Navigation</th>
                 <th>Other</th>
                 <th>Avg Stress</th>
+                <th>Violations</th>
                 <th>Started</th>
                 <th>Submitted</th>
                 <th>Action</th>
@@ -231,6 +243,15 @@ const Sessions = () => {
                   <td>{s.navigation_clicks}</td>
                   <td>{s.other_clicks}</td>
                   <td>{Math.round(Number(s.avg_stress_level || 0))}</td>
+                  <td>
+                    {s.violation_count > 0 ? (
+                      <span className="badge">
+                        {s.violation_count} violations
+                      </span>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
                   <td>{s.started_at}</td>
                   <td>{s.submitted_at ? "Yes" : "No"}</td>
                   <td>

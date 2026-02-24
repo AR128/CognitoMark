@@ -8,6 +8,9 @@ import { useSocket } from "../../hooks/useSocket";
 import ExcelJS from "exceljs";
 
 const SessionDetail = () => {
+  const clickWindowSeconds = Math.round(
+    (Number(process.env.NEXT_PUBLIC_CLICK_WINDOW_MS) || 60000) / 1000,
+  );
   const { id } = useParams();
   const [session, setSession] = useState(null);
   const [responses, setResponses] = useState([]);
@@ -37,6 +40,8 @@ const SessionDetail = () => {
       ["Exam", session.exam_title],
       ["Clicks", session.total_clicks],
       ["Avg Stress", Math.round(Number(session.avg_stress_level || 0))],
+      ["Violations", session.violation_count || 0],
+      ["Click Window (sec)", clickWindowSeconds],
       ["Started", session.started_at],
       ["Submitted", session.submitted_at || "Not yet"],
     ]);
@@ -47,6 +52,7 @@ const SessionDetail = () => {
       { header: "Question", key: "question", width: 40 },
       { header: "Answer", key: "answer", width: 28 },
       { header: "Stress", key: "stress", width: 10 },
+      { header: "Violations", key: "violations", width: 12 },
       { header: "Total Clicks", key: "total", width: 14 },
       { header: "Header", key: "header", width: 10 },
       { header: "Stress Bar", key: "stressBar", width: 12 },
@@ -60,6 +66,7 @@ const SessionDetail = () => {
         r.text,
         r.answer || "-",
         Math.round(Number(r.avg_stress_level || 0)),
+        r.violation_count || 0,
         r.click_count,
         r.header_clicks,
         r.stress_clicks,
@@ -169,6 +176,14 @@ const SessionDetail = () => {
             {Math.round(Number(session.avg_stress_level || 0))}
           </div>
           <div>
+            <strong>Violations:</strong>{" "}
+            {session.violation_count > 0 ? (
+              <span className="badge">{session.violation_count} violations</span>
+            ) : (
+              "-"
+            )}
+          </div>
+          <div>
             <strong>Started:</strong> {session.started_at}
           </div>
           <div>
@@ -178,7 +193,19 @@ const SessionDetail = () => {
       </div>
 
       <div className="card">
-        <h3>Responses</h3>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+          }}
+        >
+          <h3 style={{ margin: 0 }}>Responses</h3>
+          {session.violation_count > 0 && (
+            <span className="badge">{session.violation_count} violations</span>
+          )}
+        </div>
         <div className="grid">
           {responses.map((r) => (
             <div
@@ -198,6 +225,13 @@ const SessionDetail = () => {
                 </p>
                 <div style={{ textAlign: "right" }}>
                   <div className="badge">{r.click_count} total clicks</div>
+                  {r.violation_count > 0 && (
+                    <div style={{ marginTop: "6px" }}>
+                      <span className="badge">
+                        {r.violation_count} violations
+                      </span>
+                    </div>
+                  )}
                   <div style={{ marginTop: "6px", fontSize: "12px" }}>
                     <strong>Stress:</strong>{" "}
                     {Math.round(Number(r.avg_stress_level || 0))}

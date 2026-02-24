@@ -1,4 +1,4 @@
-import { all, get, run } from "../db/database.js";
+import { getCollection, getNextSequence } from "../db/database.js";
 import { getIo } from "../sockets/index.js";
 
 const VIOLATION_THRESHOLD = Number(process.env.VIOLATION_THRESHOLD || 3);
@@ -12,8 +12,45 @@ const normalizeFeedback = (feedback) => {
   return trimmed.length ? trimmed : null;
 };
 
-const findSessionById = (sessionId) =>
-  get("SELECT * FROM exam_sessions WHERE id = @id", { id: sessionId });
+const examSessions = () => getCollection("exam_sessions");
+const responses = () => getCollection("responses");
+const telemetry = () => getCollection("telemetry_events");
+const clickTimeseries = () => getCollection("click_timeseries");
+const questions = () => getCollection("questions");
+
+const insertTelemetryEvent = async (sessionId, type, value, meta = {}) => {
+  const payload = {
+    session_id: sessionId,
+    type,
+    value: JSON.stringify(value),
+    created_at: new Date().toISOString(),
+  };
+
+  if (Number.isFinite(meta.questionId)) {
+    payload.question_id = meta.questionId;
+  }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const id = await getNextSequence("telemetry_events");
+      await telemetry().insertOne({ id, ...payload });
+      return;
+    } catch (error) {
+      if (error?.code === 11000 && attempt < 2) {
+        continue;
+      }
+      throw error;
+    }
+  }
+};
+
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const findSessionById = async (sessionId) =>
+  examSessions().findOne({ id: sessionId });
 
 const emitSubmissionEvent = (sessionId) => {
   getIo().emit("exam_submitted", {
@@ -22,79 +59,94 @@ const emitSubmissionEvent = (sessionId) => {
   });
 };
 
-const markSessionSubmitted = (sessionId, feedback) => {
-  run(
-    "UPDATE exam_sessions SET submitted_at = CURRENT_TIMESTAMP, feedback = @feedback WHERE id = @id",
-    { id: sessionId, feedback: normalizeFeedback(feedback) },
+const markSessionSubmitted = async (sessionId, feedback) => {
+  await examSessions().updateOne(
+    { id: sessionId },
+    {
+      $set: {
+        submitted_at: new Date().toISOString(),
+        feedback: normalizeFeedback(feedback),
+      },
+    },
   );
   emitSubmissionEvent(sessionId);
 };
 
 const countExamQuestions = (examId) =>
-  get("SELECT COUNT(*) AS total FROM questions WHERE exam_id = @exam_id", {
-    exam_id: examId,
-  });
+  questions().countDocuments({ exam_id: examId });
 
 const countAnsweredQuestions = (sessionId) =>
-  get(
-    `SELECT COUNT(*) AS total
-     FROM responses
-     WHERE session_id = @session_id
-       AND answer IS NOT NULL
-       AND TRIM(answer) <> ''`,
-    { session_id: sessionId },
-  );
+  responses().countDocuments({
+    session_id: sessionId,
+    answer: { $type: "string", $regex: /\S/ },
+  });
 
 const countRecordedViolations = (sessionId) =>
-  get(
-    `SELECT COUNT(*) AS total
-     FROM telemetry_events
-     WHERE session_id = @session_id
-       AND type IN (${VIOLATION_TYPES.map((t) => `'${t}'`).join(", ")})`,
-    { session_id: sessionId },
-  );
+  telemetry().countDocuments({
+    session_id: sessionId,
+    type: { $in: VIOLATION_TYPES },
+  });
 
 const getLastClickWindowEnd = (sessionId) =>
-  get(
-    `SELECT window_end AS window_end
-     FROM click_timeseries
-     WHERE session_id = @session_id
-     ORDER BY window_end DESC
-     LIMIT 1`,
-    { session_id: sessionId },
-  );
+  clickTimeseries().find({ session_id: sessionId })
+    .sort({ window_end: -1 })
+    .limit(1)
+    .project({ window_end: 1, _id: 0 })
+    .toArray();
 
 const isValidDate = (value) => {
   const date = new Date(value);
   return Number.isFinite(date.getTime());
 };
 
-export const saveResponse = (req, res, next) => {
+export const saveResponse = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const { questionId, answer } = req.body;
 
-    const session = findSessionById(sessionId);
+    const parsedSessionId = toNumber(sessionId);
+    const parsedQuestionId = toNumber(questionId);
+    if (!parsedSessionId || !parsedQuestionId) {
+      return res.status(400).json({ error: "Invalid session or question id" });
+    }
+
+    const session = await findSessionById(parsedSessionId);
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
     }
 
-    run(
-      `INSERT INTO responses (session_id, question_id, answer, updated_at)
-       VALUES (@session_id, @question_id, @answer, CURRENT_TIMESTAMP)
-       ON CONFLICT(session_id, question_id)
-       DO UPDATE SET answer = @answer, updated_at = CURRENT_TIMESTAMP`,
-      { session_id: sessionId, question_id: questionId, answer },
+    const existingResponse = await responses().findOne(
+      { session_id: parsedSessionId, question_id: parsedQuestionId },
+      { projection: { id: 1 } },
     );
 
-    run(
-      "INSERT INTO telemetry_events (session_id, type, value) VALUES (@session_id, 'answer_saved', @value)",
-      { session_id: sessionId, value: JSON.stringify({ questionId }) },
-    );
+    if (existingResponse) {
+      await responses().updateOne(
+        { session_id: parsedSessionId, question_id: parsedQuestionId },
+        {
+          $set: {
+            answer,
+            updated_at: new Date().toISOString(),
+          },
+        },
+      );
+    } else {
+      await responses().insertOne({
+        id: await getNextSequence("responses"),
+        session_id: parsedSessionId,
+        question_id: parsedQuestionId,
+        answer,
+        updated_at: new Date().toISOString(),
+      });
+    }
+
+    await insertTelemetryEvent(parsedSessionId, "answer_saved", {
+      questionId: parsedQuestionId,
+    });
 
     getIo().emit("answer_saved", {
-      sessionId: Number(sessionId),
-      questionId,
+      sessionId: Number(parsedSessionId),
+      questionId: parsedQuestionId,
       answer,
     });
 
@@ -104,23 +156,27 @@ export const saveResponse = (req, res, next) => {
   }
 };
 
-export const updateClicks = (req, res, next) => {
+export const updateClicks = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const { totalClicks } = req.body;
 
-    run(
-      "UPDATE exam_sessions SET total_clicks = @total_clicks WHERE id = @id",
-      { total_clicks: totalClicks, id: sessionId },
+    const parsedSessionId = toNumber(sessionId);
+    if (!parsedSessionId) {
+      return res.status(400).json({ error: "Invalid session id" });
+    }
+
+    await examSessions().updateOne(
+      { id: parsedSessionId },
+      { $set: { total_clicks: totalClicks } },
     );
 
-    run(
-      "INSERT INTO telemetry_events (session_id, type, value) VALUES (@session_id, 'click_update', @value)",
-      { session_id: sessionId, value: JSON.stringify({ totalClicks }) },
-    );
+    await insertTelemetryEvent(parsedSessionId, "click_update", {
+      totalClicks,
+    });
 
     getIo().emit("click_update", {
-      sessionId: Number(sessionId),
+      sessionId: Number(parsedSessionId),
       totalClicks,
     });
 
@@ -130,23 +186,27 @@ export const updateClicks = (req, res, next) => {
   }
 };
 
-export const updateStress = (req, res, next) => {
+export const updateStress = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const { stressLevel } = req.body;
 
-    run(
-      "UPDATE exam_sessions SET stress_level = @stress_level WHERE id = @id",
-      { stress_level: stressLevel, id: sessionId },
+    const parsedSessionId = toNumber(sessionId);
+    if (!parsedSessionId) {
+      return res.status(400).json({ error: "Invalid session id" });
+    }
+
+    await examSessions().updateOne(
+      { id: parsedSessionId },
+      { $set: { stress_level: stressLevel } },
     );
 
-    run(
-      "INSERT INTO telemetry_events (session_id, type, value) VALUES (@session_id, 'stress_update', @value)",
-      { session_id: sessionId, value: JSON.stringify({ stressLevel }) },
-    );
+    await insertTelemetryEvent(parsedSessionId, "stress_update", {
+      stressLevel,
+    });
 
     getIo().emit("stress_update", {
-      sessionId: Number(sessionId),
+      sessionId: Number(parsedSessionId),
       stressLevel,
     });
 
@@ -156,7 +216,7 @@ export const updateStress = (req, res, next) => {
   }
 };
 
-export const logClickFrequency = (req, res, next) => {
+export const logClickFrequency = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const {
@@ -173,23 +233,28 @@ export const logClickFrequency = (req, res, next) => {
       clickCount,
     } = req.body;
 
-    const session = findSessionById(sessionId);
+    const parsedSessionId = toNumber(sessionId);
+    if (!parsedSessionId) {
+      return res.status(400).json({ error: "Invalid session id" });
+    }
+
+    const session = await findSessionById(parsedSessionId);
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
     }
 
     if (session.submitted_at) {
-      return res.status(400).json({ error: "Exam already submitted" });
+      return res.json({ success: true, ignored: true, reason: "submitted" });
     }
 
     if (!isValidDate(windowStart) || !isValidDate(windowEnd)) {
       return res.status(400).json({ error: "Invalid window timestamps" });
     }
 
-    const startDate = new Date(windowStart);
-    const endDate = new Date(windowEnd);
+    let startDate = new Date(windowStart);
+    let endDate = new Date(windowEnd);
     if (endDate <= startDate) {
-      return res.status(400).json({ error: "Window end must be after start" });
+      endDate = new Date(startDate.getTime() + 1);
     }
 
     if (clickCount < 0) {
@@ -198,65 +263,49 @@ export const logClickFrequency = (req, res, next) => {
         .json({ error: "Click count must be non-negative" });
     }
 
-    const lastWindow = getLastClickWindowEnd(sessionId);
+    const lastWindowRows = await getLastClickWindowEnd(parsedSessionId);
+    const lastWindow = lastWindowRows[0];
     if (lastWindow?.window_end && new Date(lastWindow.window_end) > startDate) {
-      return res.status(400).json({ error: "Click windows must not overlap" });
+      startDate = new Date(lastWindow.window_end);
+      if (endDate <= startDate) {
+        endDate = new Date(startDate.getTime() + 1);
+      }
     }
 
-    run(
-      `INSERT INTO click_timeseries (
-         session_id, window_start, window_end, question_id,
-         header_clicks, integrity_clicks, stress_clicks,
-         stress_level,
-         question_clicks, footer_clicks, other_clicks,
-         click_count
-       )
-       VALUES (
-         @session_id, @window_start, @window_end, @question_id,
-         @header_clicks, @integrity_clicks, @stress_clicks,
-         @stress_level,
-         @question_clicks, @footer_clicks, @other_clicks,
-         @click_count
-       )`,
-      {
-        session_id: sessionId,
-        window_start: startDate.toISOString(),
-        window_end: endDate.toISOString(),
-        question_id: questionId || null,
-        header_clicks: headerClicks || 0,
-        integrity_clicks: integrityClicks || 0,
-        stress_clicks: stressClicks || 0,
-        stress_level: Number.isFinite(Number(stressLevel))
-          ? Number(stressLevel)
-          : 0,
-        question_clicks: questionClicks || 0,
-        footer_clicks: footerClicks || 0,
-        other_clicks: otherClicks || 0,
-        click_count: clickCount,
-      },
-    );
+    await clickTimeseries().insertOne({
+      id: await getNextSequence("click_timeseries"),
+      session_id: parsedSessionId,
+      window_start: startDate.toISOString(),
+      window_end: endDate.toISOString(),
+      question_id: questionId ? Number(questionId) : null,
+      header_clicks: headerClicks || 0,
+      integrity_clicks: integrityClicks || 0,
+      stress_clicks: stressClicks || 0,
+      stress_level: Number.isFinite(Number(stressLevel))
+        ? Number(stressLevel)
+        : 0,
+      question_clicks: questionClicks || 0,
+      footer_clicks: footerClicks || 0,
+      other_clicks: otherClicks || 0,
+      click_count: clickCount,
+      created_at: new Date().toISOString(),
+    });
 
-    run(
-      "INSERT INTO telemetry_events (session_id, type, value) VALUES (@session_id, 'click_window', @value)",
-      {
-        session_id: sessionId,
-        value: JSON.stringify({
-          windowStart,
-          windowEnd,
-          questionId,
-          headerClicks,
-          integrityClicks,
-          stressClicks,
-          questionClicks,
-          footerClicks,
-          otherClicks,
-          clickCount,
-        }),
-      },
-    );
+    await insertTelemetryEvent(parsedSessionId, "click_window", {
+      windowStart,
+      windowEnd,
+      questionId,
+      headerClicks,
+      integrityClicks,
+      stressClicks,
+      questionClicks,
+      footerClicks,
+      otherClicks,
+      clickCount,
+    });
 
     getIo().emit("click_window", {
-      sessionId: Number(sessionId),
+      sessionId: Number(parsedSessionId),
       windowStart: startDate.toISOString(),
       windowEnd: endDate.toISOString(),
       questionId,
@@ -269,40 +318,47 @@ export const logClickFrequency = (req, res, next) => {
   }
 };
 
-export const getClickSeries = (req, res, next) => {
+export const getClickSeries = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
+    const parsedSessionId = toNumber(sessionId);
+    if (!parsedSessionId) {
+      return res.status(400).json({ error: "Invalid session id" });
+    }
 
-    const session = findSessionById(sessionId);
+    const session = await findSessionById(parsedSessionId);
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
     }
 
-    const total = get(
-      "SELECT COUNT(*) AS total FROM click_timeseries WHERE session_id = @session_id",
-      { session_id: sessionId },
-    );
+    const total = await clickTimeseries().countDocuments({
+      session_id: parsedSessionId,
+    });
 
-    const items = all(
-      `SELECT window_start, window_end, click_count
-       FROM click_timeseries
-       WHERE session_id = @session_id
-       ORDER BY window_start ASC`,
-      { session_id: sessionId },
-    );
+    const items = await clickTimeseries()
+      .find(
+        { session_id: parsedSessionId },
+        { projection: { _id: 0, window_start: 1, window_end: 1, click_count: 1 } },
+      )
+      .sort({ window_start: 1 })
+      .toArray();
 
-    return res.json({ total: total?.total || 0, items });
+    return res.json({ total, items });
   } catch (error) {
     return next(error);
   }
 };
 
-export const submitExam = (req, res, next) => {
+export const submitExam = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const { feedback } = req.body;
+    const parsedSessionId = toNumber(sessionId);
+    if (!parsedSessionId) {
+      return res.status(400).json({ error: "Invalid session id" });
+    }
 
-    const session = findSessionById(sessionId);
+    const session = await findSessionById(parsedSessionId);
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
     }
@@ -310,23 +366,23 @@ export const submitExam = (req, res, next) => {
       return res.status(400).json({ error: "Exam already submitted" });
     }
 
-    const totalQuestionsRow = countExamQuestions(session.exam_id);
-    if (!totalQuestionsRow?.total) {
+    const totalQuestions = await countExamQuestions(session.exam_id);
+    if (!totalQuestions) {
       return res
         .status(400)
         .json({ error: "Exam cannot be submitted without any questions" });
     }
 
-    const answeredQuestionsRow = countAnsweredQuestions(sessionId);
+    const answeredQuestions = await countAnsweredQuestions(parsedSessionId);
 
-    if (answeredQuestionsRow.total < totalQuestionsRow.total) {
+    if (answeredQuestions < totalQuestions) {
       return res.status(400).json({
         error: "Please answer all questions before submitting",
-        remaining: totalQuestionsRow.total - answeredQuestionsRow.total,
+        remaining: totalQuestions - answeredQuestions,
       });
     }
 
-    markSessionSubmitted(sessionId, feedback);
+    await markSessionSubmitted(parsedSessionId, feedback);
 
     return res.json({
       message: "Exam submitted successfully",
@@ -337,18 +393,24 @@ export const submitExam = (req, res, next) => {
   }
 };
 
-export const logViolation = (req, res, next) => {
+export const logViolation = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
-    const { type } = req.body;
+    const { type, questionId } = req.body;
+    const parsedSessionId = toNumber(sessionId);
+    if (!parsedSessionId) {
+      return res.status(400).json({ error: "Invalid session id" });
+    }
 
-    const session = findSessionById(sessionId);
+    const parsedQuestionId = toNumber(questionId);
+
+    const session = await findSessionById(parsedSessionId);
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
     }
 
     if (session.submitted_at) {
-      const violationCount = countRecordedViolations(sessionId).total;
+      const violationCount = await countRecordedViolations(parsedSessionId);
       return res.json({
         message: "Session already submitted",
         violationCount,
@@ -357,23 +419,22 @@ export const logViolation = (req, res, next) => {
       });
     }
 
-    run(
-      "INSERT INTO telemetry_events (session_id, type, value) VALUES (@session_id, @type, @value)",
+    await insertTelemetryEvent(
+      parsedSessionId,
+      type,
       {
-        session_id: sessionId,
-        type,
-        value: JSON.stringify({
-          violationType: type,
-          occurredAt: new Date().toISOString(),
-        }),
+        questionId: parsedQuestionId,
+        violationType: type,
+        occurredAt: new Date().toISOString(),
       },
+      { questionId: parsedQuestionId },
     );
 
-    const violationCount = countRecordedViolations(sessionId).total;
+    const violationCount = await countRecordedViolations(parsedSessionId);
     let forcedSubmit = false;
 
     if (violationCount >= VIOLATION_THRESHOLD) {
-      markSessionSubmitted(sessionId, null);
+      await markSessionSubmitted(parsedSessionId, null);
       forcedSubmit = true;
     }
 

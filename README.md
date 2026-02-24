@@ -28,7 +28,7 @@ A state-of-the-art, real-time examination platform with advanced telemetry, gran
 ### 🛠️ Technical Stack
 
 - **Frontend**: Next.js 16 (Turbopack), React 19, Socket.IO Client, Axios.
-- **Backend**: Express.js, Socket.IO, Better-SQLite3, JWT Authentication.
+- **Backend**: Express.js, Socket.IO, MongoDB, JWT Authentication.
 - **Database**: High-precision timeseries logging for telemetry data.
 
 ---
@@ -42,7 +42,7 @@ A state-of-the-art, real-time examination platform with advanced telemetry, gran
 | `frontend/src/components` | Reusable UI (ConfirmModal, Sidebar, ProtectedRoute).         |
 | `frontend/src/api`        | API client wrappers for frontend-backend communication.      |
 | `backend/src/controllers` | Business logic for exams, students, and administration.      |
-| `backend/src/db`          | Database schema and high-fidelity timeseries logs.           |
+| `backend/src/db`          | Database bootstrap and high-fidelity timeseries logs.        |
 | `backend/src/sockets`     | Real-time event orchestration.                               |
 
 ---
@@ -80,6 +80,7 @@ A state-of-the-art, real-time examination platform with advanced telemetry, gran
 - `PORT`: Server port (default: 5000)
 - `JWT_SECRET`: Security key for admin authentication
 - `CLIENT_ORIGIN`: Frontend URL for CORS (e.g., http://localhost:3000)
+- `MONGODB_URI`: MongoDB connection string
 
 #### Frontend (`frontend/.env`)
 

@@ -35,7 +35,7 @@ const VIOLATION_WARNING =
 const resolveClickWindowMs = () => {
   const rawValue = process.env.NEXT_PUBLIC_CLICK_WINDOW_MS;
   const configured = Number(rawValue);
-  return Number.isFinite(configured) && configured > 0 ? configured : 40000;
+  return Number.isFinite(configured) && configured > 0 ? configured : 60000;
 };
 
 const CLICK_WINDOW_MS = resolveClickWindowMs();
@@ -58,6 +58,10 @@ const StudentExam = () => {
   const [status, setStatus] = useState("");
   const [violationCount, setViolationCount] = useState(0);
   const [violationModal, setViolationModal] = useState({
+    visible: false,
+    message: "",
+  });
+  const [forcedExitModal, setForcedExitModal] = useState({
     visible: false,
     message: "",
   });
@@ -105,6 +109,7 @@ const StudentExam = () => {
     setStress(0);
     setViolationCount(0);
     setViolationModal({ visible: false, message: "" });
+    setForcedExitModal({ visible: false, message: "" });
   }, []);
 
   const flushClickQueue = useCallback(async () => {
@@ -217,12 +222,12 @@ const StudentExam = () => {
   );
 
   useEffect(() => {
-    if (!sessionData?.id || !sessionId || submitted) {
+    if (!sessionData?.id || !sessionId || (submitted && !forcedExitModal.visible)) {
       setStatus((prev) => prev || "Redirecting to login...");
       exitFullscreen();
       router.replace("/");
     }
-  }, [sessionData, sessionId, submitted, exitFullscreen, router]);
+  }, [sessionData, sessionId, submitted, forcedExitModal.visible, exitFullscreen, router]);
 
   useEffect(
     () => () => {
@@ -269,14 +274,24 @@ const StudentExam = () => {
       if (!sessionData?.id || submitted) {
         return;
       }
+      const currentQuestion = questions[currentQuestionIndex];
       setViolationModal({ visible: true, message });
       try {
-        const { data } = await logViolation(sessionData.id, { type });
+        const { data } = await logViolation(sessionData.id, {
+          type,
+          questionId: currentQuestion?.id || null,
+        });
         setViolationCount(data.violationCount);
         if (data.forcedSubmit) {
-          await finalizeClientExit(
-            data.message || "Exam auto-submitted due to repeated violations.",
-          );
+          const forcedMessage =
+            data.message || "Exam auto-submitted due to repeated violations.";
+          if (clickTimerRef.current) {
+            clearInterval(clickTimerRef.current);
+            clickTimerRef.current = null;
+          }
+          setSubmitted(true);
+          setForcedExitModal({ visible: true, message: forcedMessage });
+          setStatus(forcedMessage);
         }
       } catch (error) {
         setStatus(
@@ -285,7 +300,7 @@ const StudentExam = () => {
         );
       }
     },
-    [sessionData?.id, submitted, finalizeClientExit],
+    [sessionData?.id, submitted, finalizeClientExit, questions, currentQuestionIndex],
   );
 
   const handleClick = useCallback(
@@ -480,7 +495,7 @@ const StudentExam = () => {
   const isLastQuestion = currentQuestionIndex === questions.length - 1;
   const isQuestionAnswered = hasAnswerValue(answers[currentQuestion?.id]);
 
-  if (!sessionData?.id || !sessionId || submitted) {
+  if (!sessionData?.id || !sessionId || (submitted && !forcedExitModal.visible)) {
     return (
       <div className="container">
         <div className="card">{status || "Redirecting to login..."}</div>
@@ -655,6 +670,34 @@ const StudentExam = () => {
               onClick={() => setViolationModal({ visible: false, message: "" })}
             >
               Stay Focused
+            </button>
+          </div>
+        </div>
+      )}
+
+      {forcedExitModal.visible && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.65)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div className="card" style={{ maxWidth: 440, textAlign: "center" }}>
+            <h3>Session Ended</h3>
+            <p style={{ margin: "1rem 0" }}>{forcedExitModal.message}</p>
+            <button
+              className="btn"
+              onClick={() => {
+                setForcedExitModal({ visible: false, message: "" });
+                finalizeClientExit(forcedExitModal.message);
+              }}
+            >
+              OK
             </button>
           </div>
         </div>

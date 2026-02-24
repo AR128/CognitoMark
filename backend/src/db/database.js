@@ -1,14 +1,64 @@
-import Database from "better-sqlite3";
-import path from "path";
-import { fileURLToPath } from "url";
+import { MongoClient } from "mongodb";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+let client;
+let db;
 
-const dbPath = process.env.DB_PATH || path.join(__dirname, "../../exam-portal.db");
+const DEFAULT_DB_NAME = "exam_portal";
 
-export const db = new Database(dbPath);
+export const connectDb = async () => {
+	if (db) {
+		// eslint-disable-next-line no-console
+		console.log("MongoDB already connected");
+		return db;
+	}
 
-export const run = (sql, params = {}) => db.prepare(sql).run(params);
-export const get = (sql, params = {}) => db.prepare(sql).get(params);
-export const all = (sql, params = {}) => db.prepare(sql).all(params);
+	const uri = process.env.MONGODB_URI;
+	if (!uri) {
+		throw new Error("MONGODB_URI is not set");
+	}
+
+	client = new MongoClient(uri);
+	await client.connect();
+
+	db = client.db(process.env.MONGODB_DB || DEFAULT_DB_NAME);
+	// eslint-disable-next-line no-console
+	console.log("MongoDB connected");
+	return db;
+};
+
+export const getDb = () => {
+	if (!db) {
+		throw new Error("Database is not initialized");
+	}
+	return db;
+};
+
+export const getCollection = (name) => getDb().collection(name);
+
+export const getNextSequence = async (name) => {
+	const counters = getCollection("counters");
+	const result = await counters.findOneAndUpdate(
+		{ _id: name },
+		{ $inc: { seq: 1 } },
+		{ upsert: true, returnDocument: "after" },
+	);
+
+	if (typeof result?.value?.seq === "number") {
+		return result.value.seq;
+	}
+
+	const doc = await counters.findOne({ _id: name });
+	if (!doc || typeof doc.seq !== "number") {
+		throw new Error(`Failed to generate sequence for ${name}`);
+	}
+
+	return doc.seq;
+};
+
+export const closeDb = async () => {
+	if (client) {
+		await client.close();
+		client = null;
+		db = null;
+	}
+};

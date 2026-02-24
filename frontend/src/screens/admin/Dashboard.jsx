@@ -7,6 +7,9 @@ import MetricCard from "../../components/MetricCard";
 import { useSocket } from "../../hooks/useSocket";
 
 const AdminDashboard = () => {
+  const clickWindowSeconds = Math.round(
+    (Number(process.env.NEXT_PUBLIC_CLICK_WINDOW_MS) || 60000) / 1000,
+  );
   const [metrics, setMetrics] = useState({
     activeStudents: 0,
     submittedStudents: 0,
@@ -123,6 +126,7 @@ const AdminDashboard = () => {
                   <th>Exam</th>
                   <th>Total Clicks</th>
                   <th>Avg Stress</th>
+                  <th>Violations</th>
                   <th>Started</th>
                   <th>Submitted</th>
                 </tr>
@@ -140,6 +144,15 @@ const AdminDashboard = () => {
                     <td>{s.exam_title}</td>
                     <td>{s.total_clicks}</td>
                     <td>{Number(s.avg_stress_level || 0).toFixed(2)}</td>
+                    <td>
+                      {s.violation_count > 0 ? (
+                        <span className="badge">
+                          {s.violation_count} violations
+                        </span>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
                     <td>
                       {s.started_at
                         ? new Date(s.started_at).toLocaleString()
@@ -159,7 +172,7 @@ const AdminDashboard = () => {
       </div>
 
       <div className="card" style={{ marginTop: 16 }}>
-        <h3>Recent Click Windows (40s)</h3>
+        <h3>Recent Click Windows ({clickWindowSeconds}s)</h3>
         <div className="table-wrap">
           <table className="table">
             <thead>
