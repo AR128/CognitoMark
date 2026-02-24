@@ -1,14 +1,28 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { all, db, get, run } from "../db/database.js";
+import { getCollection, getNextSequence } from "../db/database.js";
 import { getIo } from "../sockets/index.js";
+
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const admins = () => getCollection("admins");
+const students = () => getCollection("students");
+const exams = () => getCollection("exams");
+const questions = () => getCollection("questions");
+const examSessions = () => getCollection("exam_sessions");
+const responses = () => getCollection("responses");
+const telemetry = () => getCollection("telemetry_events");
+const clickTimeseries = () => getCollection("click_timeseries");
+
+const VIOLATION_TYPES = ["TAB_SWITCH", "MINIMIZE", "FULLSCREEN_EXIT"];
 
 export const loginAdmin = async (req, res, next) => {
   try {
     const { username, password } = req.body;
-    const admin = get("SELECT * FROM admins WHERE username = @username", {
-      username,
-    });
+    const admin = await admins().findOne({ username });
 
     if (!admin) {
       return res.status(401).json({ error: "Invalid credentials" });
@@ -29,97 +43,189 @@ export const loginAdmin = async (req, res, next) => {
   }
 };
 
-export const getDashboardLive = (req, res, next) => {
+export const getDashboardLive = async (req, res, next) => {
   try {
-    const activeCount = get(
-      "SELECT COUNT(*) as count FROM exam_sessions WHERE submitted_at IS NULL",
-    );
-    const submittedCount = get(
-      "SELECT COUNT(*) as count FROM exam_sessions WHERE submitted_at IS NOT NULL",
-    );
-    const avgStress = get(
-      "SELECT AVG(stress_level) as avg FROM exam_sessions WHERE stress_level > 0",
-    );
-    const avgClicks = get(
-      `SELECT AVG(total) as avg
-       FROM (
-         SELECT es.id, COALESCE(SUM(ct.click_count), 0) AS total
-         FROM exam_sessions es
-         LEFT JOIN click_timeseries ct ON ct.session_id = es.id
-         GROUP BY es.id
-       )`,
-    );
+    const [activeCount, submittedCount, avgStressRow, avgClicksRow] =
+      await Promise.all([
+        examSessions().countDocuments({ submitted_at: null }),
+        examSessions().countDocuments({ submitted_at: { $ne: null } }),
+        examSessions()
+          .aggregate([
+            { $match: { stress_level: { $gt: 0 } } },
+            { $group: { _id: null, avg: { $avg: "$stress_level" } } },
+          ])
+          .toArray(),
+        clickTimeseries()
+          .aggregate([
+            {
+              $group: {
+                _id: "$session_id",
+                total: { $sum: "$click_count" },
+              },
+            },
+            { $group: { _id: null, avg: { $avg: "$total" } } },
+          ])
+          .toArray(),
+      ]);
 
-    const sessions = all(
-      `SELECT es.id,
-              s.student_id,
-              s.name,
-              e.title as exam_title,
-              es.started_at,
-              es.submitted_at,
-              COALESCE((
-                SELECT AVG(ct.stress_level)
-                FROM click_timeseries ct
-                WHERE ct.session_id = es.id
-              ), 0) AS avg_stress_level,
-              COALESCE((
-                SELECT SUM(ct.click_count)
-                FROM click_timeseries ct
-                WHERE ct.session_id = es.id
-              ), 0) AS total_clicks,
-              COALESCE((
-                SELECT ct.click_count
-                FROM click_timeseries ct
-                WHERE ct.session_id = es.id
-                ORDER BY ct.window_end DESC
-                LIMIT 1
-              ), 0) AS last_window_clicks,
-              (
-                SELECT ct.window_start
-                FROM click_timeseries ct
-                WHERE ct.session_id = es.id
-                ORDER BY ct.window_end DESC
-                LIMIT 1
-              ) AS last_window_start,
-              (
-                SELECT ct.window_end
-                FROM click_timeseries ct
-                WHERE ct.session_id = es.id
-                ORDER BY ct.window_end DESC
-                LIMIT 1
-              ) AS last_window_end
-       FROM exam_sessions es
-       JOIN students s ON s.id = es.student_id
-       JOIN exams e ON e.id = es.exam_id
-       ORDER BY es.started_at DESC
-       LIMIT 100`,
-    );
+    const sessions = await examSessions()
+      .aggregate([
+        { $sort: { started_at: -1 } },
+        { $limit: 100 },
+        {
+          $lookup: {
+            from: "students",
+            localField: "student_id",
+            foreignField: "id",
+            as: "student",
+          },
+        },
+        {
+          $lookup: {
+            from: "exams",
+            localField: "exam_id",
+            foreignField: "id",
+            as: "exam",
+          },
+        },
+        {
+          $lookup: {
+            from: "click_timeseries",
+            let: { sessionId: "$id" },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$session_id", "$$sessionId"] } } },
+              { $sort: { window_end: -1 } },
+              {
+                $group: {
+                  _id: null,
+                  total_clicks: { $sum: "$click_count" },
+                  avg_stress_level: { $avg: "$stress_level" },
+                  last_window_clicks: { $first: "$click_count" },
+                  last_window_start: { $first: "$window_start" },
+                  last_window_end: { $first: "$window_end" },
+                },
+              },
+            ],
+            as: "click_stats",
+          },
+        },
+        {
+          $lookup: {
+            from: "telemetry_events",
+            let: { sessionId: "$id" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ["$session_id", "$$sessionId"] },
+                      { $in: ["$type", VIOLATION_TYPES] },
+                    ],
+                  },
+                },
+              },
+              { $count: "count" },
+            ],
+            as: "violation_stats",
+          },
+        },
+        {
+          $addFields: {
+            student: { $first: "$student" },
+            exam: { $first: "$exam" },
+            click_stats: { $first: "$click_stats" },
+            violation_stats: { $first: "$violation_stats" },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            id: 1,
+            started_at: 1,
+            submitted_at: 1,
+            student_id: "$student.student_id",
+            name: "$student.name",
+            exam_title: "$exam.title",
+            avg_stress_level: { $ifNull: ["$click_stats.avg_stress_level", 0] },
+            total_clicks: { $ifNull: ["$click_stats.total_clicks", 0] },
+            violation_count: { $ifNull: ["$violation_stats.count", 0] },
+            last_window_clicks: {
+              $ifNull: ["$click_stats.last_window_clicks", 0],
+            },
+            last_window_start: "$click_stats.last_window_start",
+            last_window_end: "$click_stats.last_window_end",
+          },
+        },
+      ])
+      .toArray();
 
-    const clickSeries = all(
-      `SELECT ct.session_id,
-              ct.window_start,
-              ct.window_end,
-              ct.click_count,
-              ct.question_id,
-              q.text as question_text,
-              s.student_id,
-              s.name,
-              e.title as exam_title
-       FROM click_timeseries ct
-       JOIN exam_sessions es ON es.id = ct.session_id
-       JOIN students s ON s.id = es.student_id
-       JOIN exams e ON e.id = es.exam_id
-       LEFT JOIN questions q ON q.id = ct.question_id
-       ORDER BY ct.window_start DESC
-       LIMIT 50`,
-    );
+    const clickSeries = await clickTimeseries()
+      .aggregate([
+        { $sort: { window_start: -1 } },
+        { $limit: 50 },
+        {
+          $lookup: {
+            from: "exam_sessions",
+            localField: "session_id",
+            foreignField: "id",
+            as: "session",
+          },
+        },
+        { $addFields: { session: { $first: "$session" } } },
+        {
+          $lookup: {
+            from: "students",
+            localField: "session.student_id",
+            foreignField: "id",
+            as: "student",
+          },
+        },
+        {
+          $lookup: {
+            from: "exams",
+            localField: "session.exam_id",
+            foreignField: "id",
+            as: "exam",
+          },
+        },
+        {
+          $lookup: {
+            from: "questions",
+            localField: "question_id",
+            foreignField: "id",
+            as: "question",
+          },
+        },
+        {
+          $addFields: {
+            student: { $first: "$student" },
+            exam: { $first: "$exam" },
+            question: { $first: "$question" },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            session_id: 1,
+            window_start: 1,
+            window_end: 1,
+            click_count: 1,
+            question_id: 1,
+            question_text: "$question.text",
+            student_id: "$student.student_id",
+            name: "$student.name",
+            exam_title: "$exam.title",
+          },
+        },
+      ])
+      .toArray();
 
     return res.json({
       metrics: {
-        activeStudents: activeCount.count,
-        submittedStudents: submittedCount.count,
-        averageStress: Number(avgStress.avg || 0).toFixed(2),
-        averageClicks: Number(avgClicks.avg || 0).toFixed(2),
+        activeStudents: activeCount,
+        submittedStudents: submittedCount,
+        averageStress: Number(avgStressRow?.[0]?.avg || 0).toFixed(2),
+        averageClicks: Number(avgClicksRow?.[0]?.avg || 0).toFixed(2),
       },
       sessions,
       clickSeries,
@@ -129,22 +235,29 @@ export const getDashboardLive = (req, res, next) => {
   }
 };
 
-export const getExams = (req, res, next) => {
+export const getExams = async (req, res, next) => {
   try {
-    const exams = all("SELECT * FROM exams ORDER BY created_at DESC");
-    return res.json(exams);
+    const items = await exams()
+      .find({}, { projection: { _id: 0 } })
+      .sort({ created_at: -1 })
+      .toArray();
+    return res.json(items);
   } catch (error) {
     return next(error);
   }
 };
 
-export const createExam = (req, res, next) => {
+export const createExam = async (req, res, next) => {
   try {
     const { title } = req.body;
-    const info = run("INSERT INTO exams (title) VALUES (@title)", { title });
-    const exam = get("SELECT * FROM exams WHERE id = @id", {
-      id: info.lastInsertRowid,
-    });
+    const id = await getNextSequence("exams");
+    const exam = {
+      id,
+      title,
+      created_at: new Date().toISOString(),
+    };
+
+    await exams().insertOne(exam);
     getIo().emit("exam_created", { examId: exam.id });
     return res.status(201).json(exam);
   } catch (error) {
@@ -152,40 +265,49 @@ export const createExam = (req, res, next) => {
   }
 };
 
-export const deleteExam = (req, res, next) => {
+export const deleteExam = async (req, res, next) => {
   try {
-    const examId = Number(req.params.id);
+    const examId = toNumber(req.params.id);
+    if (!examId) {
+      return res.status(400).json({ error: "Invalid exam id" });
+    }
 
-    const tx = db.transaction((id) => {
-      run(
-        "DELETE FROM responses WHERE question_id IN (SELECT id FROM questions WHERE exam_id = @exam_id)",
-        { exam_id: id },
-      );
-      run(
-        "DELETE FROM responses WHERE session_id IN (SELECT id FROM exam_sessions WHERE exam_id = @exam_id)",
-        { exam_id: id },
-      );
-      run(
-        "DELETE FROM telemetry_events WHERE session_id IN (SELECT id FROM exam_sessions WHERE exam_id = @exam_id)",
-        { exam_id: id },
-      );
-      run(
-        "DELETE FROM click_timeseries WHERE session_id IN (SELECT id FROM exam_sessions WHERE exam_id = @exam_id)",
-        { exam_id: id },
-      );
-      run("DELETE FROM exam_sessions WHERE exam_id = @exam_id", {
-        exam_id: id,
-      });
-      run("DELETE FROM questions WHERE exam_id = @exam_id", {
-        exam_id: id,
-      });
-      return run("DELETE FROM exams WHERE id = @exam_id", { exam_id: id });
-    });
-
-    const result = tx(examId);
-    if (!result.changes) {
+    const existing = await exams().findOne({ id: examId });
+    if (!existing) {
       return res.status(404).json({ error: "Exam not found" });
     }
+
+    const questionIds = await questions()
+      .find({ exam_id: examId }, { projection: { id: 1 } })
+      .toArray();
+    const questionIdList = questionIds.map((q) => q.id);
+
+    const sessionIds = await examSessions()
+      .find({ exam_id: examId }, { projection: { id: 1 } })
+      .toArray();
+    const sessionIdList = sessionIds.map((s) => s.id);
+
+    const responseFilters = [];
+    if (questionIdList.length) {
+      responseFilters.push({ question_id: { $in: questionIdList } });
+    }
+    if (sessionIdList.length) {
+      responseFilters.push({ session_id: { $in: sessionIdList } });
+    }
+
+    if (responseFilters.length) {
+      await responses().deleteMany({ $or: responseFilters });
+    }
+
+    if (sessionIdList.length) {
+      await telemetry().deleteMany({ session_id: { $in: sessionIdList } });
+      await clickTimeseries().deleteMany({ session_id: { $in: sessionIdList } });
+    }
+
+    await examSessions().deleteMany({ exam_id: examId });
+    await questions().deleteMany({ exam_id: examId });
+    await exams().deleteOne({ id: examId });
+
     getIo().emit("exam_deleted", { examId });
     return res.json({ success: true });
   } catch (error) {
@@ -193,83 +315,61 @@ export const deleteExam = (req, res, next) => {
   }
 };
 
-export const getExamQuestions = (req, res, next) => {
+export const getExamQuestions = async (req, res, next) => {
   try {
-    const questions = all(
-      "SELECT * FROM questions WHERE exam_id = @exam_id ORDER BY created_at DESC",
-      { exam_id: req.params.id },
-    );
-    return res.json(
-      questions.map((q) => ({
-        ...q,
-        options: q.options ? JSON.parse(q.options) : [],
-      })),
-    );
+    const examId = toNumber(req.params.id);
+    if (!examId) {
+      return res.status(400).json({ error: "Invalid exam id" });
+    }
+    const items = await questions()
+      .find({ exam_id: examId }, { projection: { _id: 0 } })
+      .sort({ created_at: -1 })
+      .toArray();
+    return res.json(items.map((q) => ({ ...q, options: q.options || [] })));
   } catch (error) {
     return next(error);
   }
 };
 
-export const createQuestion = (req, res, next) => {
+export const createQuestion = async (req, res, next) => {
   try {
     const { examId, text, type, options } = req.body;
-    const optionsJson = options ? JSON.stringify(options) : null;
-    const info = run(
-      "INSERT INTO questions (exam_id, text, type, options) VALUES (@exam_id, @text, @type, @options)",
-      {
-        exam_id: examId,
-        text,
-        type,
-        options: optionsJson,
-      },
-    );
-    const question = get("SELECT * FROM questions WHERE id = @id", {
-      id: info.lastInsertRowid,
-    });
+    const id = await getNextSequence("questions");
+    const question = {
+      id,
+      exam_id: Number(examId),
+      text,
+      type,
+      options: Array.isArray(options) ? options : [],
+      created_at: new Date().toISOString(),
+    };
+
+    await questions().insertOne(question);
     getIo().emit("question_created", {
       questionId: question.id,
       examId: question.exam_id,
     });
-    return res.status(201).json({
-      ...question,
-      options: question.options ? JSON.parse(question.options) : [],
-    });
+    return res.status(201).json(question);
   } catch (error) {
     return next(error);
   }
 };
 
-export const deleteQuestion = (req, res, next) => {
+export const deleteQuestion = async (req, res, next) => {
   try {
-    const questionId = Number(req.params.id);
+    const questionId = toNumber(req.params.id);
+    if (!questionId) {
+      return res.status(400).json({ error: "Invalid question id" });
+    }
 
-    const tx = db.transaction((id) => {
-      const tables = db
-        .prepare(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
-        )
-        .all();
-
-      tables.forEach(({ name }) => {
-        const fks = db.prepare(`PRAGMA foreign_key_list(${name})`).all();
-        fks
-          .filter((fk) => fk.table === "questions" && fk.to === "id")
-          .forEach((fk) => {
-            run(`DELETE FROM "${name}" WHERE "${fk.from}" = @question_id`, {
-              question_id: id,
-            });
-          });
-      });
-
-      return run("DELETE FROM questions WHERE id = @question_id", {
-        question_id: id,
-      });
-    });
-
-    const result = tx(questionId);
-    if (!result.changes) {
+    const result = await questions().deleteOne({ id: questionId });
+    if (!result.deletedCount) {
       return res.status(404).json({ error: "Question not found" });
     }
+
+    await responses().deleteMany({ question_id: questionId });
+    await clickTimeseries().deleteMany({ question_id: questionId });
+
     getIo().emit("question_deleted", { questionId });
     return res.json({ success: true });
   } catch (error) {
@@ -277,59 +377,43 @@ export const deleteQuestion = (req, res, next) => {
   }
 };
 
-export const getStudents = (req, res, next) => {
+export const getStudents = async (req, res, next) => {
   try {
-    const students = all("SELECT * FROM students ORDER BY created_at DESC");
-    return res.json(students);
+    const items = await students()
+      .find({}, { projection: { _id: 0 } })
+      .sort({ created_at: -1 })
+      .toArray();
+    return res.json(items);
   } catch (error) {
     return next(error);
   }
 };
 
-export const deleteStudent = (req, res, next) => {
+export const deleteStudent = async (req, res, next) => {
   try {
-    const deleteById = (id) => {
-      const tx = db.transaction((studentDbId) => {
-        run(
-          "DELETE FROM responses WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
-          { student_id: studentDbId },
-        );
-        run(
-          "DELETE FROM telemetry_events WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
-          { student_id: studentDbId },
-        );
-        run(
-          "DELETE FROM click_timeseries WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id = @student_id)",
-          { student_id: studentDbId },
-        );
-        run("DELETE FROM exam_sessions WHERE student_id = @student_id", {
-          student_id: studentDbId,
-        });
-        return run("DELETE FROM students WHERE id = @student_id", {
-          student_id: studentDbId,
-        });
-      });
-
-      return tx(id);
-    };
-
     const rawId = req.params.id;
-    const parsedId = Number(rawId);
-    let result = Number.isFinite(parsedId) ? deleteById(parsedId) : null;
+    const parsedId = toNumber(rawId);
+    const student = parsedId
+      ? await students().findOne({ id: parsedId })
+      : await students().findOne({ student_id: rawId });
 
-    if (!result?.changes) {
-      const student = get(
-        "SELECT id FROM students WHERE student_id = @student_id",
-        { student_id: rawId },
-      );
-      if (student?.id) {
-        result = deleteById(student.id);
-      }
-    }
-
-    if (!result?.changes) {
+    if (!student) {
       return res.status(404).json({ error: "Student not found" });
     }
+
+    const sessionIds = await examSessions()
+      .find({ student_id: student.id }, { projection: { id: 1 } })
+      .toArray();
+    const sessionIdList = sessionIds.map((s) => s.id);
+
+    if (sessionIdList.length) {
+      await responses().deleteMany({ session_id: { $in: sessionIdList } });
+      await telemetry().deleteMany({ session_id: { $in: sessionIdList } });
+      await clickTimeseries().deleteMany({ session_id: { $in: sessionIdList } });
+    }
+
+    await examSessions().deleteMany({ student_id: student.id });
+    await students().deleteOne({ id: student.id });
 
     getIo().emit("student_deleted", { studentId: rawId });
     getIo().emit("session_deleted"); // Notify sessions list to refresh
@@ -340,80 +424,346 @@ export const deleteStudent = (req, res, next) => {
   }
 };
 
-export const getSessions = (req, res, next) => {
+export const getSessions = async (req, res, next) => {
   try {
-    const sessions = all(
-      `SELECT es.id, s.student_id, s.name, e.title as exam_title,
-              (SELECT COALESCE(SUM(click_count), 0) FROM click_timeseries WHERE session_id = es.id) as total_clicks,
-              (SELECT COALESCE(SUM(header_clicks), 0) FROM click_timeseries WHERE session_id = es.id) as header_clicks,
-              (SELECT COALESCE(SUM(stress_clicks), 0) FROM click_timeseries WHERE session_id = es.id) as stress_clicks,
-              (SELECT COALESCE(SUM(question_clicks), 0) FROM click_timeseries WHERE session_id = es.id) as question_clicks,
-              (SELECT COALESCE(SUM(footer_clicks), 0) FROM click_timeseries WHERE session_id = es.id) as navigation_clicks,
-              (SELECT COALESCE(SUM(other_clicks), 0) FROM click_timeseries WHERE session_id = es.id) as other_clicks,
-              (SELECT COALESCE(AVG(stress_level), 0) FROM click_timeseries WHERE session_id = es.id) as avg_stress_level,
-              es.stress_level, es.started_at, es.submitted_at
-       FROM exam_sessions es
-       JOIN students s ON s.id = es.student_id
-       JOIN exams e ON e.id = es.exam_id
-       ORDER BY es.started_at DESC`,
-    );
-    return res.json(sessions);
+    const items = await examSessions()
+      .aggregate([
+        { $sort: { started_at: -1 } },
+        {
+          $lookup: {
+            from: "students",
+            localField: "student_id",
+            foreignField: "id",
+            as: "student",
+          },
+        },
+        {
+          $lookup: {
+            from: "exams",
+            localField: "exam_id",
+            foreignField: "id",
+            as: "exam",
+          },
+        },
+        {
+          $lookup: {
+            from: "click_timeseries",
+            let: { sessionId: "$id" },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$session_id", "$$sessionId"] } } },
+              {
+                $group: {
+                  _id: null,
+                  total_clicks: { $sum: "$click_count" },
+                  header_clicks: { $sum: "$header_clicks" },
+                  stress_clicks: { $sum: "$stress_clicks" },
+                  question_clicks: { $sum: "$question_clicks" },
+                  navigation_clicks: { $sum: "$footer_clicks" },
+                  other_clicks: { $sum: "$other_clicks" },
+                  avg_stress_level: { $avg: "$stress_level" },
+                },
+              },
+            ],
+            as: "click_stats",
+          },
+        },
+        {
+          $lookup: {
+            from: "telemetry_events",
+            let: { sessionId: "$id" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ["$session_id", "$$sessionId"] },
+                      { $in: ["$type", VIOLATION_TYPES] },
+                    ],
+                  },
+                },
+              },
+              { $count: "count" },
+            ],
+            as: "violation_stats",
+          },
+        },
+        {
+          $addFields: {
+            student: { $first: "$student" },
+            exam: { $first: "$exam" },
+            click_stats: { $first: "$click_stats" },
+            violation_stats: { $first: "$violation_stats" },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            id: 1,
+            student_id: "$student.student_id",
+            name: "$student.name",
+            exam_title: "$exam.title",
+            total_clicks: { $ifNull: ["$click_stats.total_clicks", 0] },
+            header_clicks: { $ifNull: ["$click_stats.header_clicks", 0] },
+            stress_clicks: { $ifNull: ["$click_stats.stress_clicks", 0] },
+            question_clicks: { $ifNull: ["$click_stats.question_clicks", 0] },
+            navigation_clicks: {
+              $ifNull: ["$click_stats.navigation_clicks", 0],
+            },
+            other_clicks: { $ifNull: ["$click_stats.other_clicks", 0] },
+            avg_stress_level: { $ifNull: ["$click_stats.avg_stress_level", 0] },
+            violation_count: { $ifNull: ["$violation_stats.count", 0] },
+            stress_level: 1,
+            started_at: 1,
+            submitted_at: 1,
+          },
+        },
+      ])
+      .toArray();
+
+    return res.json(items);
   } catch (error) {
     return next(error);
   }
 };
 
-export const getSessionDetail = (req, res, next) => {
+export const getSessionDetail = async (req, res, next) => {
   try {
-    const session = get(
-      `SELECT es.*, s.student_id, s.name, e.title as exam_title,
-              (SELECT COALESCE(SUM(click_count), 0) FROM click_timeseries WHERE session_id = es.id) as total_clicks,
-              (SELECT COALESCE(AVG(stress_level), 0)
-               FROM click_timeseries
-               WHERE session_id = es.id) as avg_stress_level
-       FROM exam_sessions es
-       JOIN students s ON s.id = es.student_id
-       JOIN exams e ON e.id = es.exam_id
-       WHERE es.id = @id`,
-      { id: req.params.sessionId },
-    );
+    const sessionId = toNumber(req.params.sessionId);
+    if (!sessionId) {
+      return res.status(400).json({ error: "Invalid session id" });
+    }
 
-    const responses = all(
-      `SELECT r.*, q.text, q.type, q.options,
-              (SELECT COALESCE(SUM(click_count), 0) 
-               FROM click_timeseries 
-               WHERE session_id = r.session_id AND question_id = r.question_id) as click_count,
-              (SELECT COALESCE(SUM(header_clicks), 0) 
-               FROM click_timeseries 
-               WHERE session_id = r.session_id AND question_id = r.question_id) as header_clicks,
-              (SELECT COALESCE(SUM(integrity_clicks), 0) 
-               FROM click_timeseries 
-               WHERE session_id = r.session_id AND question_id = r.question_id) as integrity_clicks,
-              (SELECT COALESCE(SUM(stress_clicks), 0) 
-               FROM click_timeseries 
-               WHERE session_id = r.session_id AND question_id = r.question_id) as stress_clicks,
-            (SELECT COALESCE(AVG(stress_level), 0)
-             FROM click_timeseries
-             WHERE session_id = r.session_id AND question_id = r.question_id) as avg_stress_level,
-              (SELECT COALESCE(SUM(question_clicks), 0) 
-               FROM click_timeseries 
-               WHERE session_id = r.session_id AND question_id = r.question_id) as question_clicks,
-              (SELECT COALESCE(SUM(footer_clicks), 0) 
-               FROM click_timeseries 
-               WHERE session_id = r.session_id AND question_id = r.question_id) as footer_clicks,
-              (SELECT COALESCE(SUM(other_clicks), 0) 
-               FROM click_timeseries 
-               WHERE session_id = r.session_id AND question_id = r.question_id) as other_clicks
-       FROM responses r
-       JOIN questions q ON q.id = r.question_id
-       WHERE r.session_id = @session_id`,
-      { session_id: req.params.sessionId },
-    ).map((r) => ({
-      ...r,
-      options: r.options ? JSON.parse(r.options) : [],
-    }));
+    const sessionRows = await examSessions()
+      .aggregate([
+        { $match: { id: sessionId } },
+        {
+          $lookup: {
+            from: "students",
+            localField: "student_id",
+            foreignField: "id",
+            as: "student",
+          },
+        },
+        {
+          $lookup: {
+            from: "exams",
+            localField: "exam_id",
+            foreignField: "id",
+            as: "exam",
+          },
+        },
+        {
+          $lookup: {
+            from: "click_timeseries",
+            let: { sessionId: "$id" },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$session_id", "$$sessionId"] } } },
+              {
+                $group: {
+                  _id: null,
+                  total_clicks: { $sum: "$click_count" },
+                  avg_stress_level: { $avg: "$stress_level" },
+                },
+              },
+            ],
+            as: "click_stats",
+          },
+        },
+        {
+          $lookup: {
+            from: "telemetry_events",
+            let: { sessionId: "$id" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ["$session_id", "$$sessionId"] },
+                      { $in: ["$type", VIOLATION_TYPES] },
+                    ],
+                  },
+                },
+              },
+              { $count: "count" },
+            ],
+            as: "violation_stats",
+          },
+        },
+        {
+          $addFields: {
+            student: { $first: "$student" },
+            exam: { $first: "$exam" },
+            click_stats: { $first: "$click_stats" },
+            violation_stats: { $first: "$violation_stats" },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            id: 1,
+            student_id: "$student.student_id",
+            exam_id: 1,
+            started_at: 1,
+            submitted_at: 1,
+            total_clicks: { $ifNull: ["$click_stats.total_clicks", 0] },
+            avg_stress_level: { $ifNull: ["$click_stats.avg_stress_level", 0] },
+            violation_count: { $ifNull: ["$violation_stats.count", 0] },
+            name: "$student.name",
+            exam_title: "$exam.title",
+            stress_level: 1,
+            feedback: 1,
+          },
+        },
+      ])
+      .toArray();
 
-    return res.json({ session, responses });
+    const session = sessionRows[0];
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+
+    const responsesList = await responses()
+      .aggregate([
+        { $match: { session_id: sessionId } },
+        {
+          $lookup: {
+            from: "questions",
+            localField: "question_id",
+            foreignField: "id",
+            as: "question",
+          },
+        },
+        { $addFields: { question: { $first: "$question" } } },
+        {
+          $lookup: {
+            from: "click_timeseries",
+            let: {
+              sessionId: "$session_id",
+              questionId: "$question_id",
+            },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ["$session_id", "$$sessionId"] },
+                      { $eq: ["$question_id", "$$questionId"] },
+                    ],
+                  },
+                },
+              },
+              {
+                $group: {
+                  _id: null,
+                  click_count: { $sum: "$click_count" },
+                  header_clicks: { $sum: "$header_clicks" },
+                  integrity_clicks: { $sum: "$integrity_clicks" },
+                  stress_clicks: { $sum: "$stress_clicks" },
+                  avg_stress_level: { $avg: "$stress_level" },
+                  question_clicks: { $sum: "$question_clicks" },
+                  footer_clicks: { $sum: "$footer_clicks" },
+                  other_clicks: { $sum: "$other_clicks" },
+                },
+              },
+            ],
+            as: "click_stats",
+          },
+        },
+        { $addFields: { click_stats: { $first: "$click_stats" } } },
+        {
+          $project: {
+            _id: 0,
+            id: 1,
+            session_id: 1,
+            question_id: 1,
+            answer: 1,
+            updated_at: 1,
+            text: "$question.text",
+            type: "$question.type",
+            options: "$question.options",
+            click_count: { $ifNull: ["$click_stats.click_count", 0] },
+            header_clicks: { $ifNull: ["$click_stats.header_clicks", 0] },
+            integrity_clicks: {
+              $ifNull: ["$click_stats.integrity_clicks", 0],
+            },
+            stress_clicks: { $ifNull: ["$click_stats.stress_clicks", 0] },
+            avg_stress_level: {
+              $ifNull: ["$click_stats.avg_stress_level", 0],
+            },
+            question_clicks: { $ifNull: ["$click_stats.question_clicks", 0] },
+            footer_clicks: { $ifNull: ["$click_stats.footer_clicks", 0] },
+            other_clicks: { $ifNull: ["$click_stats.other_clicks", 0] },
+          },
+        },
+      ])
+      .toArray();
+
+    const violations = await telemetry()
+      .find(
+        { session_id: sessionId, type: { $in: VIOLATION_TYPES } },
+        { projection: { _id: 0, question_id: 1, created_at: 1, value: 1 } },
+      )
+      .toArray();
+
+    const clickWindows = await clickTimeseries()
+      .find(
+        { session_id: sessionId, question_id: { $ne: null } },
+        { projection: { _id: 0, question_id: 1, window_start: 1, window_end: 1 } },
+      )
+      .toArray();
+
+    const resolveViolationQuestionId = (violation) => {
+      if (Number.isFinite(violation.question_id)) {
+        return violation.question_id;
+      }
+
+      if (violation.value) {
+        try {
+          const parsed = JSON.parse(violation.value);
+          if (Number.isFinite(Number(parsed?.questionId))) {
+            return Number(parsed.questionId);
+          }
+        } catch {
+          // ignore invalid JSON
+        }
+      }
+
+      if (!violation.created_at) {
+        return null;
+      }
+
+      const eventTime = new Date(violation.created_at).getTime();
+      if (!Number.isFinite(eventTime)) {
+        return null;
+      }
+
+      const match = clickWindows.find((window) => {
+        const start = new Date(window.window_start).getTime();
+        const end = new Date(window.window_end).getTime();
+        return Number.isFinite(start) && Number.isFinite(end)
+          ? eventTime >= start && eventTime <= end
+          : false;
+      });
+
+      return match?.question_id ?? null;
+    };
+
+    const violationCounts = violations.reduce((acc, violation) => {
+      const questionId = resolveViolationQuestionId(violation);
+      if (Number.isFinite(questionId)) {
+        acc[questionId] = (acc[questionId] || 0) + 1;
+      }
+      return acc;
+    }, {});
+
+    return res.json({
+      session,
+      responses: responsesList.map((r) => ({
+        ...r,
+        violation_count: violationCounts[r.question_id] || 0,
+        options: r.options || [],
+      })),
+    });
   } catch (error) {
     return next(error);
   }

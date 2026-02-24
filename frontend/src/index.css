@@ -219,11 +219,15 @@ select option {
 }
 
 .btn.table-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: rgba(41, 245, 154, 0.12);
   border: 1px solid rgba(41, 245, 154, 0.5);
   color: #b6ffdf;
   font-weight: 600;
   padding: 8px 14px;
+  white-space: nowrap;
   box-shadow: none;
 }
 

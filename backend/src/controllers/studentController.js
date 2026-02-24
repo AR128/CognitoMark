@@ -1,72 +1,93 @@
-import { all, get, run } from "../db/database.js";
+import { getCollection, getNextSequence } from "../db/database.js";
 import { getIo } from "../sockets/index.js";
 
-export const studentLogin = (req, res, next) => {
+const students = () => getCollection("students");
+const exams = () => getCollection("exams");
+const questions = () => getCollection("questions");
+const examSessions = () => getCollection("exam_sessions");
+
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+export const studentLogin = async (req, res, next) => {
   try {
     const { studentId, name } = req.body;
-    let student = get("SELECT * FROM students WHERE student_id = @student_id", {
-      student_id: studentId,
-    });
+    let student = await students().findOne(
+      { student_id: studentId },
+      { projection: { _id: 0 } },
+    );
 
     if (!student) {
-      const info = run(
-        "INSERT INTO students (student_id, name) VALUES (@student_id, @name)",
-        { student_id: studentId, name },
-      );
-      student = get("SELECT * FROM students WHERE id = @id", {
-        id: info.lastInsertRowid,
-      });
+      const id = await getNextSequence("students");
+      student = {
+        id,
+        student_id: studentId,
+        name,
+        created_at: new Date().toISOString(),
+      };
+      await students().insertOne(student);
     }
 
-    const exams = all("SELECT * FROM exams ORDER BY created_at DESC");
+    const examsList = await exams()
+      .find({}, { projection: { _id: 0 } })
+      .sort({ created_at: -1 })
+      .toArray();
 
     getIo().emit("student_created", {
       student,
     });
 
-    return res.json({ student, exams });
+    return res.json({ student, exams: examsList });
   } catch (error) {
     return next(error);
   }
 };
 
-export const startExam = (req, res, next) => {
+export const startExam = async (req, res, next) => {
   try {
     const { examId } = req.params;
     const { studentId } = req.body;
+    const parsedExamId = toNumber(examId);
+    if (!parsedExamId) {
+      return res.status(400).json({ error: "Invalid exam id" });
+    }
 
-    const student = get(
-      "SELECT * FROM students WHERE student_id = @student_id",
-      {
-        student_id: studentId,
-      },
+    const student = await students().findOne(
+      { student_id: studentId },
+      { projection: { _id: 0 } },
     );
 
     if (!student) {
       return res.status(404).json({ error: "Student not found" });
     }
 
-    const exam = get("SELECT * FROM exams WHERE id = @id", { id: examId });
+    const exam = await exams().findOne(
+      { id: parsedExamId },
+      { projection: { _id: 0 } },
+    );
     if (!exam) {
       return res.status(404).json({ error: "Exam not found" });
     }
 
-    const info = run(
-      "INSERT INTO exam_sessions (student_id, exam_id) VALUES (@student_id, @exam_id)",
-      { student_id: student.id, exam_id: examId },
-    );
+    const session = {
+      id: await getNextSequence("exam_sessions"),
+      student_id: student.id,
+      exam_id: parsedExamId,
+      started_at: new Date().toISOString(),
+      submitted_at: null,
+      total_clicks: 0,
+      stress_level: 0,
+      feedback: null,
+    };
 
-    const session = get("SELECT * FROM exam_sessions WHERE id = @id", {
-      id: info.lastInsertRowid,
-    });
+    await examSessions().insertOne(session);
 
-    const questions = all(
-      "SELECT * FROM questions WHERE exam_id = @exam_id ORDER BY created_at ASC",
-      { exam_id: examId },
-    ).map((q) => ({
-      ...q,
-      options: q.options ? JSON.parse(q.options) : [],
-    }));
+    const questionsList = await questions()
+      .find({ exam_id: parsedExamId }, { projection: { _id: 0 } })
+      .sort({ created_at: 1 })
+      .toArray();
 
     getIo().emit("student_started", {
       sessionId: session.id,
@@ -76,7 +97,14 @@ export const startExam = (req, res, next) => {
       startedAt: session.started_at,
     });
 
-    return res.json({ session, exam, questions });
+    return res.json({
+      session,
+      exam,
+      questions: questionsList.map((q) => ({
+        ...q,
+        options: q.options || [],
+      })),
+    });
   } catch (error) {
     return next(error);
   }
