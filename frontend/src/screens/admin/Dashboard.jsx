@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { fetchDashboard } from "../../api/adminApi";
+import { fetchDashboard, resetDatabase } from "../../api/adminApi";
 import MetricCard from "../../components/MetricCard";
+import PasswordModal from "../../components/PasswordModal";
 import { useSocket } from "../../hooks/useSocket";
 
 const AdminDashboard = () => {
@@ -17,6 +18,13 @@ const AdminDashboard = () => {
   const [sessions, setSessions] = useState([]);
   const [clickSeries, setClickSeries] = useState([]);
   const [feed, setFeed] = useState([]);
+  const [topTransitions, setTopTransitions] = useState([]);
+  const [resetModal, setResetModal] = useState({
+    open: false,
+    password: "",
+    error: "",
+    pending: false,
+  });
 
   const pushFeed = (message) => {
     setFeed((prev) => [{ id: Date.now(), message }, ...prev].slice(0, 20));
@@ -27,6 +35,37 @@ const AdminDashboard = () => {
     setMetrics(data.metrics);
     setSessions(data.sessions);
     setClickSeries(data.clickSeries || []);
+    setTopTransitions(data.topTransitions || []);
+  };
+
+  const openResetModal = () => {
+    setResetModal({ open: true, password: "", error: "", pending: false });
+  };
+
+  const closeResetModal = () => {
+    setResetModal({ open: false, password: "", error: "", pending: false });
+  };
+
+  const confirmReset = async () => {
+    if (!resetModal.password) {
+      setResetModal((prev) => ({
+        ...prev,
+        error: "Password is required.",
+      }));
+      return;
+    }
+
+    setResetModal((prev) => ({ ...prev, pending: true, error: "" }));
+    try {
+      await resetDatabase({ password: resetModal.password });
+      pushFeed("Database reset completed");
+      closeResetModal();
+      refresh();
+    } catch (error) {
+      const message =
+        error?.response?.data?.error || "Failed to reset database";
+      setResetModal((prev) => ({ ...prev, pending: false, error: message }));
+    }
   };
 
   useEffect(() => {
@@ -83,6 +122,13 @@ const AdminDashboard = () => {
       },
       answer_saved: (payload) => {
         pushFeed(`Answer saved for session ${payload.sessionId}`);
+        refresh();
+      },
+      navigation: (payload) => {
+        pushFeed(
+          `Navigation ${payload.direction} for session ${payload.sessionId}`,
+        );
+        refresh();
       },
       exam_submitted: (payload) => {
         pushFeed(`Exam submitted for session ${payload.sessionId}`);
@@ -96,7 +142,26 @@ const AdminDashboard = () => {
 
   return (
     <div className="container">
-      <h2>Live Dashboard</h2>
+      <div className="dashboard-header">
+        <h2>Live Dashboard</h2>
+        <button className="btn danger" type="button" onClick={openResetModal}>
+          Reset
+        </button>
+      </div>
+      <PasswordModal
+        isOpen={resetModal.open}
+        title="Reset database"
+        message="This will delete all sessions, exams, questions, students, and telemetry. Enter your admin password to confirm."
+        password={resetModal.password}
+        onPasswordChange={(value) =>
+          setResetModal((prev) => ({ ...prev, password: value, error: "" }))
+        }
+        onConfirm={confirmReset}
+        onCancel={closeResetModal}
+        confirmText={resetModal.pending ? "Resetting..." : "Reset"}
+        error={resetModal.error}
+        pending={resetModal.pending}
+      />
       <div className="grid dashboard-metrics">
         <MetricCard label="Active Students" value={metrics.activeStudents} />
         <MetricCard label="Submitted" value={metrics.submittedStudents} />
@@ -126,6 +191,10 @@ const AdminDashboard = () => {
                   <th>Exam</th>
                   <th>Total Clicks</th>
                   <th>Avg Stress</th>
+                  <th>Prev</th>
+                  <th>Next</th>
+                  <th>Latest Answer</th>
+                  <th>Latest Question</th>
                   <th>Violations</th>
                   <th>Started</th>
                   <th>Submitted</th>
@@ -144,6 +213,10 @@ const AdminDashboard = () => {
                     <td>{s.exam_title}</td>
                     <td>{s.total_clicks}</td>
                     <td>{Number(s.avg_stress_level || 0).toFixed(2)}</td>
+                    <td>{s.prev_clicks || 0}</td>
+                    <td>{s.next_clicks || 0}</td>
+                    <td>{s.latest_answer || "-"}</td>
+                    <td>{s.latest_question_text || "-"}</td>
                     <td>
                       {s.violation_count > 0 ? (
                         <span className="badge">
@@ -204,6 +277,38 @@ const AdminDashboard = () => {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <h3>Top Question Transitions</h3>
+        {topTransitions.length === 0 ? (
+          <div className="feed-item">No transitions recorded yet</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>From</th>
+                  <th>To</th>
+                  <th>Direction</th>
+                  <th>Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topTransitions.map((row, idx) => (
+                  <tr
+                    key={`${row.from_question_id}-${row.to_question_id}-${row.direction}-${idx}`}
+                  >
+                    <td>{row.from_question_text || row.from_question_id}</td>
+                    <td>{row.to_question_text || row.to_question_id}</td>
+                    <td>{row.direction}</td>
+                    <td>{row.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

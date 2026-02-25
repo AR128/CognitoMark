@@ -1,12 +1,11 @@
-import { MongoClient } from "mongodb";
+import mongoose from "mongoose";
 
-let client;
 let db;
 
 const DEFAULT_DB_NAME = "exam_portal";
 
 export const connectDb = async () => {
-	if (db) {
+	if (mongoose.connection.readyState === 1 && db) {
 		// eslint-disable-next-line no-console
 		console.log("MongoDB already connected");
 		return db;
@@ -17,10 +16,11 @@ export const connectDb = async () => {
 		throw new Error("MONGODB_URI is not set");
 	}
 
-	client = new MongoClient(uri);
-	await client.connect();
+	await mongoose.connect(uri, {
+		dbName: process.env.MONGODB_DB || DEFAULT_DB_NAME,
+	});
 
-	db = client.db(process.env.MONGODB_DB || DEFAULT_DB_NAME);
+	db = mongoose.connection.db;
 	// eslint-disable-next-line no-console
 	console.log("MongoDB connected");
 	return db;
@@ -56,9 +56,8 @@ export const getNextSequence = async (name) => {
 };
 
 export const closeDb = async () => {
-	if (client) {
-		await client.close();
-		client = null;
+	if (mongoose.connection.readyState !== 0) {
+		await mongoose.disconnect();
 		db = null;
 	}
 };

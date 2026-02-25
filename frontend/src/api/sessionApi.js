@@ -9,6 +9,9 @@ export const updateClicks = (sessionId, payload) =>
 export const logClickFrequency = (sessionId, payload) =>
   api.post(`/api/sessions/${sessionId}/click-frequency`, payload);
 
+export const logNavigation = (sessionId, payload) =>
+  api.post(`/api/sessions/${sessionId}/navigation`, payload);
+
 export const fetchClickSeries = (sessionId) =>
   api.get(`/api/sessions/${sessionId}/click-series`);
 

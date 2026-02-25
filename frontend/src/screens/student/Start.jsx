@@ -20,13 +20,6 @@ const StartExam = () => {
   const handleStart = async () => {
     setError("");
     try {
-      if (typeof document !== "undefined") {
-        const element = document.documentElement;
-        if (!document.fullscreenElement && element.requestFullscreen) {
-          await element.requestFullscreen();
-        }
-      }
-
       const student = storage.get("student");
       if (!student) {
         router.push("/");

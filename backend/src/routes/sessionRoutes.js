@@ -3,6 +3,7 @@ import { validate } from "../middlewares/validate.js";
 import {
   clickFrequencySchema,
   clicksSchema,
+  navigationSchema,
   responseSchema,
   stressSchema,
   submitSchema,
@@ -11,6 +12,7 @@ import {
 import {
   getClickSeries,
   logClickFrequency,
+  logNavigation,
   logViolation,
   saveResponse,
   submitExam,
@@ -26,6 +28,11 @@ router.post(
   "/sessions/:sessionId/click-frequency",
   validate(clickFrequencySchema),
   logClickFrequency
+);
+router.post(
+  "/sessions/:sessionId/navigation",
+  validate(navigationSchema),
+  logNavigation
 );
 router.post("/sessions/:sessionId/stress", validate(stressSchema), updateStress);
 router.post("/sessions/:sessionId/violation", validate(violationSchema), logViolation);

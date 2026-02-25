@@ -19,6 +19,7 @@ export const questionCreateSchema = z.object({
   text: z.string().min(3),
   type: z.enum(["mcq", "text"]),
   options: z.array(z.string()).optional(),
+  correctAnswer: z.string().min(1).optional(),
 });
 
 export const responseSchema = z.object({
@@ -54,4 +55,14 @@ export const submitSchema = z.object({
 
 export const violationSchema = z.object({
   type: z.enum(["TAB_SWITCH", "MINIMIZE", "FULLSCREEN_EXIT"]),
+});
+
+export const navigationSchema = z.object({
+  fromQuestionId: z.number().int(),
+  toQuestionId: z.number().int(),
+  direction: z.enum(["next", "previous"]),
+});
+
+export const resetSchema = z.object({
+  password: z.string().min(4),
 });
