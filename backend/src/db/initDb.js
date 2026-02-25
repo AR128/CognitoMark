@@ -1,29 +1,29 @@
 import bcrypt from "bcryptjs";
 import { connectDb, getCollection, getNextSequence } from "./database.js";
+import {
+  Admin,
+  ClickTimeseries,
+  Counter,
+  Exam,
+  ExamSession,
+  Question,
+  Response,
+  Student,
+  TelemetryEvent,
+} from "../models/index.js";
 
 const ensureIndexes = async () => {
-  await getCollection("admins").createIndex({ id: 1 }, { unique: true });
-  await getCollection("admins").createIndex({ username: 1 }, { unique: true });
-  await getCollection("students").createIndex({ id: 1 }, { unique: true });
-  await getCollection("students").createIndex(
-    { student_id: 1 },
-    { unique: true },
-  );
-  await getCollection("exams").createIndex({ id: 1 }, { unique: true });
-  await getCollection("questions").createIndex({ id: 1 }, { unique: true });
-  await getCollection("exam_sessions").createIndex({ id: 1 }, { unique: true });
-  await getCollection("responses").createIndex({ id: 1 }, { unique: true });
-  await getCollection("telemetry_events").createIndex({ id: 1 }, { unique: true });
-  await getCollection("click_timeseries").createIndex({ id: 1 }, { unique: true });
-  await getCollection("responses").createIndex(
-    { session_id: 1, question_id: 1 },
-    { unique: true },
-  );
-  await getCollection("exam_sessions").createIndex({ exam_id: 1 });
-  await getCollection("exam_sessions").createIndex({ student_id: 1 });
-  await getCollection("click_timeseries").createIndex({ session_id: 1 });
-  await getCollection("telemetry_events").createIndex({ session_id: 1 });
-  await getCollection("questions").createIndex({ exam_id: 1 });
+  await Promise.all([
+    Admin.syncIndexes(),
+    Student.syncIndexes(),
+    Exam.syncIndexes(),
+    Question.syncIndexes(),
+    ExamSession.syncIndexes(),
+    Response.syncIndexes(),
+    TelemetryEvent.syncIndexes(),
+    ClickTimeseries.syncIndexes(),
+    Counter.syncIndexes(),
+  ]);
 };
 
 const syncCounter = async (sequenceName, collectionName) => {
@@ -82,17 +82,16 @@ export const initDb = async () => {
   const adminUsername = process.env.ADMIN_USERNAME || "admin";
   const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
 
-  const admins = getCollection("admins");
-  const adminExists = await admins.findOne({ username: adminUsername });
+  const adminExists = await Admin.findOne({ username: adminUsername }).lean();
 
   if (!adminExists) {
     const hash = await bcrypt.hash(adminPassword, 10);
     const id = await getNextSequence("admins");
-    await admins.insertOne({
+    await Admin.create({
       id,
       username: adminUsername,
       password_hash: hash,
-      created_at: new Date().toISOString(),
+      created_at: new Date(),
     });
   }
 };

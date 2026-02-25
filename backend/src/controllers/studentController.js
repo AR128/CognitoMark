@@ -1,10 +1,11 @@
-import { getCollection, getNextSequence } from "../db/database.js";
+import { getNextSequence } from "../db/database.js";
 import { getIo } from "../sockets/index.js";
+import { Exam, ExamSession, Question, Student } from "../models/index.js";
 
-const students = () => getCollection("students");
-const exams = () => getCollection("exams");
-const questions = () => getCollection("questions");
-const examSessions = () => getCollection("exam_sessions");
+const students = () => Student;
+const exams = () => Exam;
+const questions = () => Question;
+const examSessions = () => ExamSession;
 
 const toNumber = (value) => {
   const parsed = Number(value);
@@ -16,8 +17,8 @@ export const studentLogin = async (req, res, next) => {
     const { studentId, name } = req.body;
     let student = await students().findOne(
       { student_id: studentId },
-      { projection: { _id: 0 } },
-    );
+      { _id: 0 },
+    ).lean();
 
     if (!student) {
       const id = await getNextSequence("students");
@@ -25,15 +26,15 @@ export const studentLogin = async (req, res, next) => {
         id,
         student_id: studentId,
         name,
-        created_at: new Date().toISOString(),
+        created_at: new Date(),
       };
-      await students().insertOne(student);
+      await students().create(student);
     }
 
     const examsList = await exams()
-      .find({}, { projection: { _id: 0 } })
+      .find({}, { _id: 0 })
       .sort({ created_at: -1 })
-      .toArray();
+      .lean();
 
     getIo().emit("student_created", {
       student,
@@ -56,8 +57,8 @@ export const startExam = async (req, res, next) => {
 
     const student = await students().findOne(
       { student_id: studentId },
-      { projection: { _id: 0 } },
-    );
+      { _id: 0 },
+    ).lean();
 
     if (!student) {
       return res.status(404).json({ error: "Student not found" });
@@ -65,8 +66,8 @@ export const startExam = async (req, res, next) => {
 
     const exam = await exams().findOne(
       { id: parsedExamId },
-      { projection: { _id: 0 } },
-    );
+      { _id: 0 },
+    ).lean();
     if (!exam) {
       return res.status(404).json({ error: "Exam not found" });
     }
@@ -75,19 +76,20 @@ export const startExam = async (req, res, next) => {
       id: await getNextSequence("exam_sessions"),
       student_id: student.id,
       exam_id: parsedExamId,
-      started_at: new Date().toISOString(),
+      started_at: new Date(),
       submitted_at: null,
       total_clicks: 0,
       stress_level: 0,
       feedback: null,
     };
 
-    await examSessions().insertOne(session);
+    await examSessions().create(session);
 
     const questionsList = await questions()
-      .find({ exam_id: parsedExamId }, { projection: { _id: 0 } })
+      .find({ exam_id: parsedExamId })
+      .select({ _id: 0, correct_answer: 0 })
       .sort({ created_at: 1 })
-      .toArray();
+      .lean();
 
     getIo().emit("student_started", {
       sessionId: session.id,

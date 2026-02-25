@@ -1,28 +1,39 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { getCollection, getNextSequence } from "../db/database.js";
+import { getNextSequence } from "../db/database.js";
 import { getIo } from "../sockets/index.js";
+import {
+  Admin,
+  ClickTimeseries,
+  Counter,
+  Exam,
+  ExamSession,
+  Question,
+  Response,
+  Student,
+  TelemetryEvent,
+} from "../models/index.js";
 
 const toNumber = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const admins = () => getCollection("admins");
-const students = () => getCollection("students");
-const exams = () => getCollection("exams");
-const questions = () => getCollection("questions");
-const examSessions = () => getCollection("exam_sessions");
-const responses = () => getCollection("responses");
-const telemetry = () => getCollection("telemetry_events");
-const clickTimeseries = () => getCollection("click_timeseries");
+const admins = () => Admin;
+const students = () => Student;
+const exams = () => Exam;
+const questions = () => Question;
+const examSessions = () => ExamSession;
+const responses = () => Response;
+const telemetry = () => TelemetryEvent;
+const clickTimeseries = () => ClickTimeseries;
 
 const VIOLATION_TYPES = ["TAB_SWITCH", "MINIMIZE", "FULLSCREEN_EXIT"];
 
 export const loginAdmin = async (req, res, next) => {
   try {
     const { username, password } = req.body;
-    const admin = await admins().findOne({ username });
+    const admin = await admins().findOne({ username }).lean();
 
     if (!admin) {
       return res.status(401).json({ error: "Invalid credentials" });
@@ -54,7 +65,7 @@ export const getDashboardLive = async (req, res, next) => {
             { $match: { stress_level: { $gt: 0 } } },
             { $group: { _id: null, avg: { $avg: "$stress_level" } } },
           ])
-          .toArray(),
+          .exec(),
         clickTimeseries()
           .aggregate([
             {
@@ -65,7 +76,7 @@ export const getDashboardLive = async (req, res, next) => {
             },
             { $group: { _id: null, avg: { $avg: "$total" } } },
           ])
-          .toArray(),
+          .exec(),
       ]);
 
     const sessions = await examSessions()
@@ -130,11 +141,80 @@ export const getDashboardLive = async (req, res, next) => {
           },
         },
         {
+          $lookup: {
+            from: "telemetry_events",
+            let: { sessionId: "$id" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ["$session_id", "$$sessionId"] },
+                      { $eq: ["$type", "NAVIGATION"] },
+                    ],
+                  },
+                },
+              },
+              {
+                $group: {
+                  _id: null,
+                  prev_count: {
+                    $sum: {
+                      $cond: [{ $eq: ["$direction", "previous"] }, 1, 0],
+                    },
+                  },
+                  next_count: {
+                    $sum: {
+                      $cond: [{ $eq: ["$direction", "next"] }, 1, 0],
+                    },
+                  },
+                },
+              },
+            ],
+            as: "nav_stats",
+          },
+        },
+        {
+          $lookup: {
+            from: "responses",
+            let: { sessionId: "$id" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: { $eq: ["$session_id", "$$sessionId"] },
+                },
+              },
+              { $sort: { updated_at: -1 } },
+              { $limit: 1 },
+              { $project: { _id: 0, answer: 1, question_id: 1 } },
+            ],
+            as: "latest_response",
+          },
+        },
+        {
+          $lookup: {
+            from: "questions",
+            let: { questionId: { $first: "$latest_response.question_id" } },
+            pipeline: [
+              {
+                $match: {
+                  $expr: { $eq: ["$id", "$$questionId"] },
+                },
+              },
+              { $project: { _id: 0, text: 1 } },
+            ],
+            as: "latest_question",
+          },
+        },
+        {
           $addFields: {
             student: { $first: "$student" },
             exam: { $first: "$exam" },
             click_stats: { $first: "$click_stats" },
             violation_stats: { $first: "$violation_stats" },
+            nav_stats: { $first: "$nav_stats" },
+            latest_response: { $first: "$latest_response" },
+            latest_question: { $first: "$latest_question" },
           },
         },
         {
@@ -149,6 +229,10 @@ export const getDashboardLive = async (req, res, next) => {
             avg_stress_level: { $ifNull: ["$click_stats.avg_stress_level", 0] },
             total_clicks: { $ifNull: ["$click_stats.total_clicks", 0] },
             violation_count: { $ifNull: ["$violation_stats.count", 0] },
+            prev_clicks: { $ifNull: ["$nav_stats.prev_count", 0] },
+            next_clicks: { $ifNull: ["$nav_stats.next_count", 0] },
+            latest_answer: "$latest_response.answer",
+            latest_question_text: "$latest_question.text",
             last_window_clicks: {
               $ifNull: ["$click_stats.last_window_clicks", 0],
             },
@@ -157,7 +241,7 @@ export const getDashboardLive = async (req, res, next) => {
           },
         },
       ])
-      .toArray();
+      .exec();
 
     const clickSeries = await clickTimeseries()
       .aggregate([
@@ -218,7 +302,64 @@ export const getDashboardLive = async (req, res, next) => {
           },
         },
       ])
-      .toArray();
+      .exec();
+
+    const topTransitions = await telemetry()
+      .aggregate([
+        {
+          $match: {
+            type: "NAVIGATION",
+            question_id: { $ne: null },
+            to_question_id: { $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              from: "$question_id",
+              to: "$to_question_id",
+              direction: "$direction",
+            },
+            count: { $sum: 1 },
+          },
+        },
+        {
+          $lookup: {
+            from: "questions",
+            let: { fromId: "$_id.from" },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$id", "$$fromId"] } } },
+              { $project: { _id: 0, text: 1 } },
+            ],
+            as: "from_question",
+          },
+        },
+        {
+          $lookup: {
+            from: "questions",
+            let: { toId: "$_id.to" },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$id", "$$toId"] } } },
+              { $project: { _id: 0, text: 1 } },
+            ],
+            as: "to_question",
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            from_question_id: "$_id.from",
+            to_question_id: "$_id.to",
+            direction: "$_id.direction",
+            count: 1,
+            from_question_text: { $first: "$from_question.text" },
+            to_question_text: { $first: "$to_question.text" },
+          },
+        },
+        { $sort: { count: -1 } },
+        { $limit: 12 },
+      ])
+      .exec();
 
     return res.json({
       metrics: {
@@ -229,6 +370,7 @@ export const getDashboardLive = async (req, res, next) => {
       },
       sessions,
       clickSeries,
+      topTransitions,
     });
   } catch (error) {
     return next(error);
@@ -238,9 +380,9 @@ export const getDashboardLive = async (req, res, next) => {
 export const getExams = async (req, res, next) => {
   try {
     const items = await exams()
-      .find({}, { projection: { _id: 0 } })
+      .find({}, { _id: 0 })
       .sort({ created_at: -1 })
-      .toArray();
+      .lean();
     return res.json(items);
   } catch (error) {
     return next(error);
@@ -254,10 +396,10 @@ export const createExam = async (req, res, next) => {
     const exam = {
       id,
       title,
-      created_at: new Date().toISOString(),
+      created_at: new Date(),
     };
 
-    await exams().insertOne(exam);
+    await exams().create(exam);
     getIo().emit("exam_created", { examId: exam.id });
     return res.status(201).json(exam);
   } catch (error) {
@@ -272,19 +414,21 @@ export const deleteExam = async (req, res, next) => {
       return res.status(400).json({ error: "Invalid exam id" });
     }
 
-    const existing = await exams().findOne({ id: examId });
+    const existing = await exams().findOne({ id: examId }).lean();
     if (!existing) {
       return res.status(404).json({ error: "Exam not found" });
     }
 
     const questionIds = await questions()
-      .find({ exam_id: examId }, { projection: { id: 1 } })
-      .toArray();
+      .find({ exam_id: examId })
+      .select({ id: 1, _id: 0 })
+      .lean();
     const questionIdList = questionIds.map((q) => q.id);
 
     const sessionIds = await examSessions()
-      .find({ exam_id: examId }, { projection: { id: 1 } })
-      .toArray();
+      .find({ exam_id: examId })
+      .select({ id: 1, _id: 0 })
+      .lean();
     const sessionIdList = sessionIds.map((s) => s.id);
 
     const responseFilters = [];
@@ -322,9 +466,9 @@ export const getExamQuestions = async (req, res, next) => {
       return res.status(400).json({ error: "Invalid exam id" });
     }
     const items = await questions()
-      .find({ exam_id: examId }, { projection: { _id: 0 } })
+      .find({ exam_id: examId }, { _id: 0 })
       .sort({ created_at: -1 })
-      .toArray();
+      .lean();
     return res.json(items.map((q) => ({ ...q, options: q.options || [] })));
   } catch (error) {
     return next(error);
@@ -333,18 +477,33 @@ export const getExamQuestions = async (req, res, next) => {
 
 export const createQuestion = async (req, res, next) => {
   try {
-    const { examId, text, type, options } = req.body;
+    const { examId, text, type, options, correctAnswer } = req.body;
     const id = await getNextSequence("questions");
+    const trimmedCorrect =
+      typeof correctAnswer === "string" ? correctAnswer.trim() : "";
+    if (type === "mcq") {
+      if (!trimmedCorrect) {
+        return res
+          .status(400)
+          .json({ error: "Correct answer is required for MCQ questions" });
+      }
+      if (!Array.isArray(options) || !options.includes(trimmedCorrect)) {
+        return res.status(400).json({
+          error: "Correct answer must match one of the MCQ options",
+        });
+      }
+    }
     const question = {
       id,
       exam_id: Number(examId),
       text,
       type,
       options: Array.isArray(options) ? options : [],
-      created_at: new Date().toISOString(),
+      correct_answer: trimmedCorrect || null,
+      created_at: new Date(),
     };
 
-    await questions().insertOne(question);
+    await questions().create(question);
     getIo().emit("question_created", {
       questionId: question.id,
       examId: question.exam_id,
@@ -380,9 +539,9 @@ export const deleteQuestion = async (req, res, next) => {
 export const getStudents = async (req, res, next) => {
   try {
     const items = await students()
-      .find({}, { projection: { _id: 0 } })
+      .find({}, { _id: 0 })
       .sort({ created_at: -1 })
-      .toArray();
+      .lean();
     return res.json(items);
   } catch (error) {
     return next(error);
@@ -394,16 +553,17 @@ export const deleteStudent = async (req, res, next) => {
     const rawId = req.params.id;
     const parsedId = toNumber(rawId);
     const student = parsedId
-      ? await students().findOne({ id: parsedId })
-      : await students().findOne({ student_id: rawId });
+      ? await students().findOne({ id: parsedId }).lean()
+      : await students().findOne({ student_id: rawId }).lean();
 
     if (!student) {
       return res.status(404).json({ error: "Student not found" });
     }
 
     const sessionIds = await examSessions()
-      .find({ student_id: student.id }, { projection: { id: 1 } })
-      .toArray();
+      .find({ student_id: student.id })
+      .select({ id: 1, _id: 0 })
+      .lean();
     const sessionIdList = sessionIds.map((s) => s.id);
 
     if (sessionIdList.length) {
@@ -418,6 +578,43 @@ export const deleteStudent = async (req, res, next) => {
     getIo().emit("student_deleted", { studentId: rawId });
     getIo().emit("session_deleted"); // Notify sessions list to refresh
 
+    return res.json({ success: true });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const resetDatabase = async (req, res, next) => {
+  try {
+    const { password } = req.body;
+    const adminId = req.admin?.id;
+    if (!adminId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const admin = await admins().findOne({ id: adminId }).lean();
+    if (!admin) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const valid = await bcrypt.compare(password, admin.password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid password" });
+    }
+
+    await Promise.all([
+      students().deleteMany({}),
+      examSessions().deleteMany({}),
+      responses().deleteMany({}),
+      telemetry().deleteMany({}),
+      clickTimeseries().deleteMany({}),
+      Counter.updateMany(
+        { _id: { $in: ["students", "exam_sessions", "responses", "telemetry_events", "click_timeseries"] } },
+        { $set: { seq: 0 } },
+      ),
+    ]);
+
+    getIo().emit("reset");
     return res.json({ success: true });
   } catch (error) {
     return next(error);
@@ -488,11 +685,80 @@ export const getSessions = async (req, res, next) => {
           },
         },
         {
+          $lookup: {
+            from: "telemetry_events",
+            let: { sessionId: "$id" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ["$session_id", "$$sessionId"] },
+                      { $eq: ["$type", "NAVIGATION"] },
+                    ],
+                  },
+                },
+              },
+              {
+                $group: {
+                  _id: null,
+                  prev_count: {
+                    $sum: {
+                      $cond: [{ $eq: ["$direction", "previous"] }, 1, 0],
+                    },
+                  },
+                  next_count: {
+                    $sum: {
+                      $cond: [{ $eq: ["$direction", "next"] }, 1, 0],
+                    },
+                  },
+                },
+              },
+            ],
+            as: "nav_stats",
+          },
+        },
+        {
+          $lookup: {
+            from: "responses",
+            let: { sessionId: "$id" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: { $eq: ["$session_id", "$$sessionId"] },
+                },
+              },
+              { $sort: { updated_at: -1 } },
+              { $limit: 1 },
+              { $project: { _id: 0, answer: 1, question_id: 1 } },
+            ],
+            as: "latest_response",
+          },
+        },
+        {
+          $lookup: {
+            from: "questions",
+            let: { questionId: { $first: "$latest_response.question_id" } },
+            pipeline: [
+              {
+                $match: {
+                  $expr: { $eq: ["$id", "$$questionId"] },
+                },
+              },
+              { $project: { _id: 0, text: 1 } },
+            ],
+            as: "latest_question",
+          },
+        },
+        {
           $addFields: {
             student: { $first: "$student" },
             exam: { $first: "$exam" },
             click_stats: { $first: "$click_stats" },
             violation_stats: { $first: "$violation_stats" },
+            nav_stats: { $first: "$nav_stats" },
+            latest_response: { $first: "$latest_response" },
+            latest_question: { $first: "$latest_question" },
           },
         },
         {
@@ -512,13 +778,17 @@ export const getSessions = async (req, res, next) => {
             other_clicks: { $ifNull: ["$click_stats.other_clicks", 0] },
             avg_stress_level: { $ifNull: ["$click_stats.avg_stress_level", 0] },
             violation_count: { $ifNull: ["$violation_stats.count", 0] },
+            prev_clicks: { $ifNull: ["$nav_stats.prev_count", 0] },
+            next_clicks: { $ifNull: ["$nav_stats.next_count", 0] },
+            latest_answer: "$latest_response.answer",
+            latest_question_text: "$latest_question.text",
             stress_level: 1,
             started_at: 1,
             submitted_at: 1,
           },
         },
       ])
-      .toArray();
+      .exec();
 
     return res.json(items);
   } catch (error) {
@@ -590,11 +860,45 @@ export const getSessionDetail = async (req, res, next) => {
           },
         },
         {
+          $lookup: {
+            from: "responses",
+            let: { sessionId: "$id" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: { $eq: ["$session_id", "$$sessionId"] },
+                },
+              },
+              { $sort: { updated_at: -1 } },
+              { $limit: 1 },
+              { $project: { _id: 0, answer: 1, question_id: 1 } },
+            ],
+            as: "latest_response",
+          },
+        },
+        {
+          $lookup: {
+            from: "questions",
+            let: { questionId: { $first: "$latest_response.question_id" } },
+            pipeline: [
+              {
+                $match: {
+                  $expr: { $eq: ["$id", "$$questionId"] },
+                },
+              },
+              { $project: { _id: 0, text: 1 } },
+            ],
+            as: "latest_question",
+          },
+        },
+        {
           $addFields: {
             student: { $first: "$student" },
             exam: { $first: "$exam" },
             click_stats: { $first: "$click_stats" },
             violation_stats: { $first: "$violation_stats" },
+            latest_response: { $first: "$latest_response" },
+            latest_question: { $first: "$latest_question" },
           },
         },
         {
@@ -612,10 +916,14 @@ export const getSessionDetail = async (req, res, next) => {
             exam_title: "$exam.title",
             stress_level: 1,
             feedback: 1,
+            latest_answer: "$latest_response.answer",
+            latest_question_text: "$latest_question.text",
+              score_total: 1,
+              score_obtained: 1,
           },
         },
       ])
-      .toArray();
+      .exec();
 
     const session = sessionRows[0];
     if (!session) {
@@ -677,10 +985,12 @@ export const getSessionDetail = async (req, res, next) => {
             session_id: 1,
             question_id: 1,
             answer: 1,
+            is_correct: 1,
             updated_at: 1,
             text: "$question.text",
             type: "$question.type",
             options: "$question.options",
+            correct_answer: "$question.correct_answer",
             click_count: { $ifNull: ["$click_stats.click_count", 0] },
             header_clicks: { $ifNull: ["$click_stats.header_clicks", 0] },
             integrity_clicks: {
@@ -696,21 +1006,137 @@ export const getSessionDetail = async (req, res, next) => {
           },
         },
       ])
-      .toArray();
+      .exec();
+
+    const totalQuestions = await questions().countDocuments({
+      exam_id: session.exam_id,
+    });
+
+    const normalizeAnswer = (value) =>
+      typeof value === "string" ? value.trim().toLowerCase() : "";
+
+    const scoredResponses = responsesList.map((r) => {
+      if (typeof r.is_correct === "boolean") {
+        return r;
+      }
+      let isCorrect = false;
+      if (r.correct_answer && r.answer !== undefined && r.answer !== null) {
+        if (r.type === "text") {
+          isCorrect =
+            normalizeAnswer(r.answer) === normalizeAnswer(r.correct_answer);
+        } else {
+          isCorrect = r.answer === r.correct_answer;
+        }
+      }
+      return { ...r, is_correct: isCorrect };
+    });
+
+    const computedScore = scoredResponses.reduce(
+      (sum, r) => sum + (r.is_correct ? 1 : 0),
+      0,
+    );
+
+    const navRows = await telemetry()
+      .aggregate([
+        {
+          $match: {
+            session_id: sessionId,
+            type: "NAVIGATION",
+            question_id: { $ne: null },
+            to_question_id: { $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: { question_id: "$question_id", direction: "$direction" },
+            count: { $sum: 1 },
+          },
+        },
+      ])
+      .exec();
+
+    const navigationCounts = navRows.reduce((acc, row) => {
+      const questionId = row._id?.question_id;
+      if (!Number.isFinite(questionId)) {
+        return acc;
+      }
+      if (!acc[questionId]) {
+        acc[questionId] = { prev: 0, next: 0 };
+      }
+      if (row._id.direction === "previous") {
+        acc[questionId].prev = row.count;
+      } else if (row._id.direction === "next") {
+        acc[questionId].next = row.count;
+      }
+      return acc;
+    }, {});
+
+    const navigationTransitions = await telemetry()
+      .aggregate([
+        {
+          $match: {
+            session_id: sessionId,
+            type: "NAVIGATION",
+            question_id: { $ne: null },
+            to_question_id: { $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              from: "$question_id",
+              to: "$to_question_id",
+              direction: "$direction",
+            },
+            count: { $sum: 1 },
+          },
+        },
+        {
+          $lookup: {
+            from: "questions",
+            let: { fromId: "$_id.from" },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$id", "$$fromId"] } } },
+              { $project: { _id: 0, text: 1 } },
+            ],
+            as: "from_question",
+          },
+        },
+        {
+          $lookup: {
+            from: "questions",
+            let: { toId: "$_id.to" },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$id", "$$toId"] } } },
+              { $project: { _id: 0, text: 1 } },
+            ],
+            as: "to_question",
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            from_question_id: "$_id.from",
+            to_question_id: "$_id.to",
+            direction: "$_id.direction",
+            count: 1,
+            from_question_text: { $first: "$from_question.text" },
+            to_question_text: { $first: "$to_question.text" },
+          },
+        },
+        { $sort: { count: -1 } },
+      ])
+      .exec();
 
     const violations = await telemetry()
-      .find(
-        { session_id: sessionId, type: { $in: VIOLATION_TYPES } },
-        { projection: { _id: 0, question_id: 1, created_at: 1, value: 1 } },
-      )
-      .toArray();
+      .find({ session_id: sessionId, type: { $in: VIOLATION_TYPES } })
+      .select({ _id: 0, question_id: 1, created_at: 1, value: 1 })
+      .lean();
 
     const clickWindows = await clickTimeseries()
-      .find(
-        { session_id: sessionId, question_id: { $ne: null } },
-        { projection: { _id: 0, question_id: 1, window_start: 1, window_end: 1 } },
-      )
-      .toArray();
+      .find({ session_id: sessionId, question_id: { $ne: null } })
+      .select({ _id: 0, question_id: 1, window_start: 1, window_end: 1 })
+      .lean();
 
     const resolveViolationQuestionId = (violation) => {
       if (Number.isFinite(violation.question_id)) {
@@ -756,13 +1182,27 @@ export const getSessionDetail = async (req, res, next) => {
       return acc;
     }, {});
 
+    const scoreTotal = Number.isFinite(session.score_total)
+      ? session.score_total
+      : totalQuestions;
+    const scoreObtained = Number.isFinite(session.score_obtained)
+      ? session.score_obtained
+      : computedScore;
+
     return res.json({
-      session,
-      responses: responsesList.map((r) => ({
+      session: {
+        ...session,
+        score_total: scoreTotal,
+        score_obtained: scoreObtained,
+      },
+      responses: scoredResponses.map((r) => ({
         ...r,
+        prev_clicks: navigationCounts[r.question_id]?.prev || 0,
+        next_clicks: navigationCounts[r.question_id]?.next || 0,
         violation_count: violationCounts[r.question_id] || 0,
         options: r.options || [],
       })),
+      navigationTransitions,
     });
   } catch (error) {
     return next(error);

@@ -1,5 +1,12 @@
-import { getCollection, getNextSequence } from "../db/database.js";
+import { getNextSequence } from "../db/database.js";
 import { getIo } from "../sockets/index.js";
+import {
+  ClickTimeseries,
+  ExamSession,
+  Question,
+  Response,
+  TelemetryEvent,
+} from "../models/index.js";
 
 const VIOLATION_THRESHOLD = Number(process.env.VIOLATION_THRESHOLD || 3);
 const VIOLATION_TYPES = ["TAB_SWITCH", "MINIMIZE", "FULLSCREEN_EXIT"];
@@ -12,28 +19,36 @@ const normalizeFeedback = (feedback) => {
   return trimmed.length ? trimmed : null;
 };
 
-const examSessions = () => getCollection("exam_sessions");
-const responses = () => getCollection("responses");
-const telemetry = () => getCollection("telemetry_events");
-const clickTimeseries = () => getCollection("click_timeseries");
-const questions = () => getCollection("questions");
+const examSessions = () => ExamSession;
+const responses = () => Response;
+const telemetry = () => TelemetryEvent;
+const clickTimeseries = () => ClickTimeseries;
+const questions = () => Question;
 
 const insertTelemetryEvent = async (sessionId, type, value, meta = {}) => {
   const payload = {
     session_id: sessionId,
     type,
     value: JSON.stringify(value),
-    created_at: new Date().toISOString(),
+    created_at: new Date(),
   };
 
   if (Number.isFinite(meta.questionId)) {
     payload.question_id = meta.questionId;
   }
 
+  if (Number.isFinite(meta.toQuestionId)) {
+    payload.to_question_id = meta.toQuestionId;
+  }
+
+  if (meta.direction) {
+    payload.direction = meta.direction;
+  }
+
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const id = await getNextSequence("telemetry_events");
-      await telemetry().insertOne({ id, ...payload });
+      await telemetry().create({ id, ...payload });
       return;
     } catch (error) {
       if (error?.code === 11000 && attempt < 2) {
@@ -50,7 +65,7 @@ const toNumber = (value) => {
 };
 
 const findSessionById = async (sessionId) =>
-  examSessions().findOne({ id: sessionId });
+  examSessions().findOne({ id: sessionId }).lean();
 
 const emitSubmissionEvent = (sessionId) => {
   getIo().emit("exam_submitted", {
@@ -64,12 +79,19 @@ const markSessionSubmitted = async (sessionId, feedback) => {
     { id: sessionId },
     {
       $set: {
-        submitted_at: new Date().toISOString(),
+        submitted_at: new Date(),
         feedback: normalizeFeedback(feedback),
       },
     },
   );
   emitSubmissionEvent(sessionId);
+};
+
+const normalizeAnswer = (value) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim().toLowerCase();
 };
 
 const countExamQuestions = (examId) =>
@@ -88,11 +110,12 @@ const countRecordedViolations = (sessionId) =>
   });
 
 const getLastClickWindowEnd = (sessionId) =>
-  clickTimeseries().find({ session_id: sessionId })
+  clickTimeseries()
+    .find({ session_id: sessionId })
     .sort({ window_end: -1 })
     .limit(1)
-    .project({ window_end: 1, _id: 0 })
-    .toArray();
+    .select({ window_end: 1, _id: 0 })
+    .lean();
 
 const isValidDate = (value) => {
   const date = new Date(value);
@@ -117,8 +140,8 @@ export const saveResponse = async (req, res, next) => {
 
     const existingResponse = await responses().findOne(
       { session_id: parsedSessionId, question_id: parsedQuestionId },
-      { projection: { id: 1 } },
-    );
+      { id: 1, _id: 0 },
+    ).lean();
 
     if (existingResponse) {
       await responses().updateOne(
@@ -126,17 +149,17 @@ export const saveResponse = async (req, res, next) => {
         {
           $set: {
             answer,
-            updated_at: new Date().toISOString(),
+            updated_at: new Date(),
           },
         },
       );
     } else {
-      await responses().insertOne({
+      await responses().create({
         id: await getNextSequence("responses"),
         session_id: parsedSessionId,
         question_id: parsedQuestionId,
         answer,
-        updated_at: new Date().toISOString(),
+        updated_at: new Date(),
       });
     }
 
@@ -272,11 +295,11 @@ export const logClickFrequency = async (req, res, next) => {
       }
     }
 
-    await clickTimeseries().insertOne({
+    await clickTimeseries().create({
       id: await getNextSequence("click_timeseries"),
       session_id: parsedSessionId,
-      window_start: startDate.toISOString(),
-      window_end: endDate.toISOString(),
+      window_start: startDate,
+      window_end: endDate,
       question_id: questionId ? Number(questionId) : null,
       header_clicks: headerClicks || 0,
       integrity_clicks: integrityClicks || 0,
@@ -288,7 +311,7 @@ export const logClickFrequency = async (req, res, next) => {
       footer_clicks: footerClicks || 0,
       other_clicks: otherClicks || 0,
       click_count: clickCount,
-      created_at: new Date().toISOString(),
+      created_at: new Date(),
     });
 
     await insertTelemetryEvent(parsedSessionId, "click_window", {
@@ -318,6 +341,57 @@ export const logClickFrequency = async (req, res, next) => {
   }
 };
 
+export const logNavigation = async (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const { fromQuestionId, toQuestionId, direction } = req.body;
+
+    const parsedSessionId = toNumber(sessionId);
+    const parsedFromQuestionId = toNumber(fromQuestionId);
+    const parsedToQuestionId = toNumber(toQuestionId);
+
+    if (!parsedSessionId || !parsedFromQuestionId || !parsedToQuestionId) {
+      return res.status(400).json({ error: "Invalid navigation payload" });
+    }
+
+    const session = await findSessionById(parsedSessionId);
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+
+    if (session.submitted_at) {
+      return res.json({ success: true, ignored: true, reason: "submitted" });
+    }
+
+    await insertTelemetryEvent(
+      parsedSessionId,
+      "NAVIGATION",
+      {
+        fromQuestionId: parsedFromQuestionId,
+        toQuestionId: parsedToQuestionId,
+        direction,
+        occurredAt: new Date().toISOString(),
+      },
+      {
+        questionId: parsedFromQuestionId,
+        toQuestionId: parsedToQuestionId,
+        direction,
+      },
+    );
+
+    getIo().emit("navigation", {
+      sessionId: parsedSessionId,
+      fromQuestionId: parsedFromQuestionId,
+      toQuestionId: parsedToQuestionId,
+      direction,
+    });
+
+    return res.json({ success: true });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 export const getClickSeries = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
@@ -336,12 +410,10 @@ export const getClickSeries = async (req, res, next) => {
     });
 
     const items = await clickTimeseries()
-      .find(
-        { session_id: parsedSessionId },
-        { projection: { _id: 0, window_start: 1, window_end: 1, click_count: 1 } },
-      )
+      .find({ session_id: parsedSessionId })
+      .select({ _id: 0, window_start: 1, window_end: 1, click_count: 1 })
       .sort({ window_start: 1 })
-      .toArray();
+      .lean();
 
     return res.json({ total, items });
   } catch (error) {
@@ -382,7 +454,65 @@ export const submitExam = async (req, res, next) => {
       });
     }
 
-    await markSessionSubmitted(parsedSessionId, feedback);
+    const questionList = await questions()
+      .find({ exam_id: session.exam_id })
+      .select({ _id: 0, id: 1, type: 1, correct_answer: 1 })
+      .lean();
+
+    const responseList = await responses()
+      .find({ session_id: parsedSessionId })
+      .select({ _id: 0, question_id: 1, answer: 1 })
+      .lean();
+
+    const responseMap = responseList.reduce((acc, row) => {
+      acc[row.question_id] = row.answer;
+      return acc;
+    }, {});
+
+    const scoreTotal = questionList.length;
+    const correctnessMap = questionList.reduce((acc, question) => {
+      const answer = responseMap[question.id];
+      let isCorrect = false;
+      if (question.correct_answer && answer !== undefined && answer !== null) {
+        if (question.type === "text") {
+          isCorrect =
+            normalizeAnswer(answer) === normalizeAnswer(question.correct_answer);
+        } else {
+          isCorrect = answer === question.correct_answer;
+        }
+      }
+      acc[question.id] = isCorrect;
+      return acc;
+    }, {});
+
+    const scoreObtained = Object.values(correctnessMap).reduce(
+      (sum, value) => sum + (value ? 1 : 0),
+      0,
+    );
+
+    const bulkUpdates = responseList.map((row) => ({
+      updateOne: {
+        filter: { session_id: parsedSessionId, question_id: row.question_id },
+        update: { $set: { is_correct: Boolean(correctnessMap[row.question_id]) } },
+      },
+    }));
+
+    if (bulkUpdates.length) {
+      await responses().bulkWrite(bulkUpdates, { ordered: false });
+    }
+
+    await examSessions().updateOne(
+      { id: parsedSessionId },
+      {
+        $set: {
+          submitted_at: new Date(),
+          feedback: normalizeFeedback(feedback),
+          score_total: scoreTotal,
+          score_obtained: scoreObtained,
+        },
+      },
+    );
+    emitSubmissionEvent(parsedSessionId);
 
     return res.json({
       message: "Exam submitted successfully",

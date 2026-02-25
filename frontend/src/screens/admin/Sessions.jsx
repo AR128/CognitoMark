@@ -4,15 +4,39 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { fetchSessionDetail, fetchSessions } from "../../api/adminApi";
 import { useSocket } from "../../hooks/useSocket";
-import ExcelJS from "exceljs";
+const toCsvValue = (value) => {
+  if (value === null || value === undefined) return "";
+  const str = String(value);
+  if (/[",\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+};
+
+const buildCsv = (headers, rows) => {
+  const lines = [];
+  if (headers?.length) {
+    lines.push(headers.map(toCsvValue).join(","));
+  }
+  rows.forEach((row) => {
+    lines.push(row.map(toCsvValue).join(","));
+  });
+  return lines.join("\r\n");
+};
 
 const Sessions = () => {
   const [sessions, setSessions] = useState([]);
   const clickWindowSeconds = Math.round(
     (Number(process.env.NEXT_PUBLIC_CLICK_WINDOW_MS) || 60000) / 1000,
   );
+  const formatDateTime = (value) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return String(value);
+    return date.toLocaleString();
+  };
 
-  const exportToExcel = async () => {
+  const exportToCsv = async () => {
     if (!sessions.length) return;
 
     const detailResults = await Promise.all(
@@ -31,14 +55,10 @@ const Sessions = () => {
       "Student",
       "Exam",
       "Started",
+      "Ended",
       "Submitted",
       "Avg Stress",
       "Total Clicks",
-      "Header",
-      "Stress",
-      "Question",
-      "Navigation",
-      "Other",
       "Question Text",
       "Answer",
       "Question Stress",
@@ -46,7 +66,8 @@ const Sessions = () => {
       "Response Header",
       "Response Stress Bar",
       "Response Question",
-      "Response Navigation",
+      "Response Prev",
+      "Response Next",
       "Response Other",
     ];
 
@@ -55,15 +76,11 @@ const Sessions = () => {
         session.id,
         session.student_id,
         session.exam_title,
-        session.started_at,
-        session.submitted_at || "No",
+        formatDateTime(session.started_at),
+        formatDateTime(session.submitted_at),
+        session.submitted_at ? "Yes" : "No",
         Math.round(Number(session.avg_stress_level || 0)),
         session.total_clicks,
-        session.header_clicks || 0,
-        session.stress_clicks || 0,
-        session.question_clicks || 0,
-        session.navigation_clicks || 0,
-        session.other_clicks || 0,
       ];
 
       const emptyBaseRow = new Array(baseRow.length).fill("");
@@ -73,6 +90,7 @@ const Sessions = () => {
           ...baseRow,
           "-",
           "-",
+          0,
           0,
           0,
           0,
@@ -92,68 +110,22 @@ const Sessions = () => {
         r.header_clicks,
         r.stress_clicks,
         r.question_clicks,
-        r.footer_clicks,
+        r.prev_clicks || 0,
+        r.next_clicks || 0,
         r.other_clicks,
       ]);
     });
 
-    const workbook = new ExcelJS.Workbook();
-    const metaSheet = workbook.addWorksheet("Metadata");
-    metaSheet.columns = [
-      { header: "Field", key: "field", width: 22 },
-      { header: "Value", key: "value", width: 20 },
-    ];
-    metaSheet.addRow(["Click Window (sec)", clickWindowSeconds]);
-    metaSheet.getRow(1).font = { bold: true };
-
-    const worksheet = workbook.addWorksheet("Sessions");
-
-    const widths = [
-      10,
-      14,
-      16,
-      22,
-      12,
-      10,
-      12,
-      10,
-      10,
-      12,
-      12,
-      10,
-      40,
-      24,
-      12,
-      14,
-      14,
-      16,
-      16,
-      18,
-      12,
-    ];
-
-    worksheet.columns = headers.map((header, index) => ({
-      header,
-      key: `col_${index}`,
-      width: widths[index] || 14,
-    }));
-
-    rows.forEach((row) => {
-      worksheet.addRow(row);
-    });
-
-    worksheet.getRow(1).font = { bold: true };
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer],
-      {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      },
-    );
+    const csv = [
+      buildCsv(["Click Window (sec)", clickWindowSeconds], []),
+      "",
+      buildCsv(headers, rows),
+    ].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `sessions_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    link.download = `sessions_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -182,6 +154,7 @@ const Sessions = () => {
       click_window: () => load(),
       stress_update: () => load(),
       answer_saved: () => load(),
+      navigation: () => load(),
     }),
     [],
   );
@@ -195,10 +168,10 @@ const Sessions = () => {
         <button
           className="btn export-btn"
           type="button"
-          onClick={exportToExcel}
+          onClick={exportToCsv}
           disabled={!sessions.length}
         >
-          Export Excel
+          Export CSV
         </button>
       </div>
       <div className="card">
@@ -216,32 +189,36 @@ const Sessions = () => {
           <table className="table">
             <thead>
               <tr>
-                <th>Student</th>
+                <th>Student ID</th>
                 <th>Exam</th>
                 <th>Total Clicks</th>
-                <th>Header</th>
-                <th>Stress</th>
-                <th>Question</th>
-                <th>Navigation</th>
-                <th>Other</th>
                 <th>Avg Stress</th>
                 <th>Violations</th>
                 <th>Started</th>
+                <th>Ended</th>
                 <th>Submitted</th>
-                <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {sessions.map((s) => (
-                <tr key={s.id}>
+                <tr
+                  key={s.id}
+                  className="row-clickable"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    window.location.href = `/admin/session/${s.id}`;
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      window.location.href = `/admin/session/${s.id}`;
+                    }
+                  }}
+                >
                   <td>{s.student_id}</td>
                   <td>{s.exam_title}</td>
                   <td>{s.total_clicks}</td>
-                  <td>{s.header_clicks}</td>
-                  <td>{s.stress_clicks}</td>
-                  <td>{s.question_clicks}</td>
-                  <td>{s.navigation_clicks}</td>
-                  <td>{s.other_clicks}</td>
                   <td>{Math.round(Number(s.avg_stress_level || 0))}</td>
                   <td>
                     {s.violation_count > 0 ? (
@@ -252,16 +229,9 @@ const Sessions = () => {
                       "-"
                     )}
                   </td>
-                  <td>{s.started_at}</td>
+                  <td>{formatDateTime(s.started_at)}</td>
+                  <td>{formatDateTime(s.submitted_at)}</td>
                   <td>{s.submitted_at ? "Yes" : "No"}</td>
-                  <td>
-                    <Link
-                      className="btn table-action"
-                      href={`/admin/session/${s.id}`}
-                    >
-                      View Answers
-                    </Link>
-                  </td>
                 </tr>
               ))}
             </tbody>

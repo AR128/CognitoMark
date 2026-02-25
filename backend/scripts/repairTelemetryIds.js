@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { MongoClient } from "mongodb";
+import mongoose from "mongoose";
 
 dotenv.config();
 
@@ -10,16 +10,14 @@ if (!uri) {
   throw new Error("MONGODB_URI is not set");
 }
 
-const client = new MongoClient(uri);
-
 const toNumber = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
 
 const main = async () => {
-  await client.connect();
-  const db = client.db(dbName);
+  await mongoose.connect(uri, { dbName });
+  const db = mongoose.connection.db;
   const telemetry = db.collection("telemetry_events");
   const counters = db.collection("counters");
 
@@ -54,11 +52,11 @@ const main = async () => {
     { upsert: true },
   );
 
-  await client.close();
+  await mongoose.disconnect();
 };
 
 main().catch(async (error) => {
   console.error(error);
-  await client.close();
+  await mongoose.disconnect();
   process.exit(1);
 });

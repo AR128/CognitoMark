@@ -5,87 +5,129 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { fetchSessionDetail } from "../../api/adminApi";
 import { useSocket } from "../../hooks/useSocket";
-import ExcelJS from "exceljs";
+const toCsvValue = (value) => {
+  if (value === null || value === undefined) return "";
+  const str = String(value);
+  if (/[",\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+};
+
+const buildCsv = (headers, rows) => {
+  const lines = [];
+  if (headers?.length) {
+    lines.push(headers.map(toCsvValue).join(","));
+  }
+  rows.forEach((row) => {
+    lines.push(row.map(toCsvValue).join(","));
+  });
+  return lines.join("\r\n");
+};
 
 const SessionDetail = () => {
   const clickWindowSeconds = Math.round(
     (Number(process.env.NEXT_PUBLIC_CLICK_WINDOW_MS) || 60000) / 1000,
   );
+  const formatDateTime = (value) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return String(value);
+    return date.toLocaleString();
+  };
   const { id } = useParams();
   const [session, setSession] = useState(null);
   const [responses, setResponses] = useState([]);
+  const [navigationTransitions, setNavigationTransitions] = useState([]);
 
   const load = async () => {
     try {
       const { data } = await fetchSessionDetail(id);
       setSession(data.session);
       setResponses(data.responses);
+      setNavigationTransitions(data.navigationTransitions || []);
     } catch (error) {
       console.error("Failed to load session details", error);
     }
   };
 
-  const exportSessionToExcel = async () => {
+  const exportSessionToCsv = async () => {
     if (!session) return;
 
-    const workbook = new ExcelJS.Workbook();
-    const summary = workbook.addWorksheet("Summary");
-    summary.columns = [
-      { header: "Field", key: "field", width: 18 },
-      { header: "Value", key: "value", width: 36 },
-    ];
-
-    summary.addRows([
+    const summaryHeaders = ["Field", "Value"];
+    const summaryRows = [
       ["Student", `${session.student_id} - ${session.name}`],
       ["Exam", session.exam_title],
       ["Clicks", session.total_clicks],
       ["Avg Stress", Math.round(Number(session.avg_stress_level || 0))],
       ["Violations", session.violation_count || 0],
       ["Click Window (sec)", clickWindowSeconds],
-      ["Started", session.started_at],
-      ["Submitted", session.submitted_at || "Not yet"],
-    ]);
-    summary.getRow(1).font = { bold: true };
-
-    const responsesSheet = workbook.addWorksheet("Responses");
-    responsesSheet.columns = [
-      { header: "Question", key: "question", width: 40 },
-      { header: "Answer", key: "answer", width: 28 },
-      { header: "Stress", key: "stress", width: 10 },
-      { header: "Violations", key: "violations", width: 12 },
-      { header: "Total Clicks", key: "total", width: 14 },
-      { header: "Header", key: "header", width: 10 },
-      { header: "Stress Bar", key: "stressBar", width: 12 },
-      { header: "Question Clicks", key: "questionClicks", width: 16 },
-      { header: "Navigation", key: "navigation", width: 12 },
-      { header: "Other", key: "other", width: 10 },
+      ["Started", formatDateTime(session.started_at)],
+      ["Submitted", formatDateTime(session.submitted_at)],
+      ["Score", `${session.score_obtained ?? 0} / ${session.score_total ?? 0}`],
     ];
 
-    responses.forEach((r) => {
-      responsesSheet.addRow([
-        r.text,
-        r.answer || "-",
-        Math.round(Number(r.avg_stress_level || 0)),
-        r.violation_count || 0,
-        r.click_count,
-        r.header_clicks,
-        r.stress_clicks,
-        r.question_clicks,
-        r.footer_clicks,
-        r.other_clicks,
-      ]);
-    });
+    const responseHeaders = [
+      "Question",
+      "Answer",
+      "Correct Answer",
+      "Result",
+      "Stress",
+      "Violations",
+      "Total Clicks",
+      "Header",
+      "Stress Bar",
+      "Question Clicks",
+      "Prev",
+      "Next",
+      "Other",
+    ];
 
-    responsesSheet.getRow(1).font = { bold: true };
+    const responseRows = responses.map((r) => [
+      r.text,
+      r.answer || "-",
+      r.correct_answer || "-",
+      r.is_correct ? "Correct" : "Wrong",
+      Math.round(Number(r.avg_stress_level || 0)),
+      r.violation_count || 0,
+      r.click_count,
+      r.header_clicks,
+      r.stress_clicks,
+      r.question_clicks,
+      r.prev_clicks || 0,
+      r.next_clicks || 0,
+      r.other_clicks,
+    ]);
 
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    });
+    const navigationHeaders = [
+      "From Question",
+      "To Question",
+      "Direction",
+      "Count",
+    ];
+    const navigationRows = navigationTransitions.map((row) => [
+      row.from_question_text || row.from_question_id,
+      row.to_question_text || row.to_question_id,
+      row.direction,
+      row.count,
+    ]);
+
+    const csv = [
+      "Summary",
+      buildCsv(summaryHeaders, summaryRows),
+      "",
+      "Responses",
+      buildCsv(responseHeaders, responseRows),
+      "",
+      "Navigation",
+      buildCsv(navigationHeaders, navigationRows),
+    ].join("\r\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `session_${session.id}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    link.download = `session_${session.id}_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -116,6 +158,11 @@ const SessionDetail = () => {
         }
       },
       answer_saved: (payload) => {
+        if (String(payload.sessionId) === String(id)) {
+          load();
+        }
+      },
+      navigation: (payload) => {
         if (String(payload.sessionId) === String(id)) {
           load();
         }
@@ -152,8 +199,8 @@ const SessionDetail = () => {
       >
         <h2 style={{ margin: 0 }}>Session Detail</h2>
         <div style={{ display: "flex", gap: "10px" }}>
-          <button className="btn export-btn" type="button" onClick={exportSessionToExcel}>
-            Export Excel
+          <button className="btn export-btn" type="button" onClick={exportSessionToCsv}>
+            Export CSV
           </button>
           <Link href="/admin/sessions" className="btn secondary">
             &larr; Back to Sessions
@@ -184,10 +231,20 @@ const SessionDetail = () => {
             )}
           </div>
           <div>
-            <strong>Started:</strong> {session.started_at}
+            <strong>Started:</strong> {formatDateTime(session.started_at)}
           </div>
           <div>
-            <strong>Submitted:</strong> {session.submitted_at || "Not yet"}
+            <strong>Submitted:</strong> {formatDateTime(session.submitted_at)}
+          </div>
+          <div>
+            <strong>Score:</strong> {session.score_obtained ?? 0} /{" "}
+            {session.score_total ?? 0}
+          </div>
+          <div>
+            <strong>Latest Answer:</strong> {session.latest_answer || "-"}
+          </div>
+          <div>
+            <strong>Latest Question:</strong> {session.latest_question_text || "-"}
           </div>
         </div>
       </div>
@@ -232,6 +289,30 @@ const SessionDetail = () => {
                       </span>
                     </div>
                   )}
+                  <div style={{ marginTop: "6px" }}>
+                    <span
+                      className="badge"
+                      style={{
+                        background: r.is_correct
+                          ? "rgba(41, 245, 154, 0.15)"
+                          : "rgba(255, 99, 99, 0.16)",
+                        color: r.is_correct ? "var(--green)" : "#ff9b9b",
+                        borderColor: r.is_correct
+                          ? "rgba(41, 245, 154, 0.4)"
+                          : "rgba(255, 99, 99, 0.4)",
+                      }}
+                    >
+                      {r.is_correct ? "Correct" : "Wrong"}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: "6px", fontSize: "12px" }}>
+                    <strong>Correct Answer:</strong>{" "}
+                    {r.correct_answer || "-"}
+                  </div>
+                  <div style={{ marginTop: "6px", fontSize: "12px" }}>
+                    <strong>Prev:</strong> {r.prev_clicks || 0} |{" "}
+                    <strong>Next:</strong> {r.next_clicks || 0}
+                  </div>
                   <div style={{ marginTop: "6px", fontSize: "12px" }}>
                     <strong>Stress:</strong>{" "}
                     {Math.round(Number(r.avg_stress_level || 0))}
@@ -261,6 +342,40 @@ const SessionDetail = () => {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Question Navigation</h3>
+        {navigationTransitions.length === 0 ? (
+          <div style={{ color: "var(--muted)" }}>
+            No navigation transitions recorded yet.
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>From</th>
+                  <th>To</th>
+                  <th>Direction</th>
+                  <th>Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {navigationTransitions.map((row, idx) => (
+                  <tr
+                    key={`${row.from_question_id}-${row.to_question_id}-${row.direction}-${idx}`}
+                  >
+                    <td>{row.from_question_text || row.from_question_id}</td>
+                    <td>{row.to_question_text || row.to_question_id}</td>
+                    <td>{row.direction}</td>
+                    <td>{row.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

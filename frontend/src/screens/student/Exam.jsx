@@ -6,6 +6,7 @@ import { debounce } from "../../utils/debounce";
 import { storage } from "../../utils/storage";
 import {
   logClickFrequency,
+  logNavigation,
   logViolation,
   saveResponse,
   submitExam,
@@ -84,6 +85,9 @@ const StudentExam = () => {
   const clickQueueRef = useRef([]);
   const flushInProgressRef = useRef(false);
   const clickTimerRef = useRef(null);
+  const enforcementStartRef = useRef(0);
+  const hasFullscreenRef = useRef(false);
+  const ENFORCEMENT_GRACE_MS = 1500;
 
   useEffect(
     () => () => {
@@ -238,6 +242,10 @@ const StudentExam = () => {
 
   useEffect(() => {
     if (enforcementActive) {
+      enforcementStartRef.current = Date.now();
+      hasFullscreenRef.current = Boolean(
+        typeof document !== "undefined" && document.fullscreenElement,
+      );
       requestFullscreen();
     }
   }, [enforcementActive, requestFullscreen]);
@@ -251,6 +259,7 @@ const StudentExam = () => {
       clickWindowStartRef.current = null;
       clickCountRef.current = 0;
       clickQueueRef.current = [];
+      hasFullscreenRef.current = false;
       return undefined;
     }
 
@@ -339,21 +348,42 @@ const StudentExam = () => {
     document.addEventListener("click", handleDocumentClick, true);
 
     const handleVisibility = () => {
+      if (Date.now() - enforcementStartRef.current < ENFORCEMENT_GRACE_MS) {
+        return;
+      }
       if (document.visibilityState === "hidden") {
         handleViolation("MINIMIZE", VIOLATION_WARNING);
       }
     };
 
-    const handleBlur = () => handleViolation("TAB_SWITCH", VIOLATION_WARNING);
+    const handleBlur = () => {
+      if (Date.now() - enforcementStartRef.current < ENFORCEMENT_GRACE_MS) {
+        return;
+      }
+      handleViolation("TAB_SWITCH", VIOLATION_WARNING);
+    };
     const handleFocus = () =>
       setViolationModal((prev) => ({ ...prev, visible: false }));
 
     const handleFullscreenChange = () => {
+      if (document.fullscreenElement) {
+        hasFullscreenRef.current = true;
+        return;
+      }
+      if (!hasFullscreenRef.current) {
+        return;
+      }
+      if (Date.now() - enforcementStartRef.current < ENFORCEMENT_GRACE_MS) {
+        return;
+      }
       if (!document.fullscreenElement) {
         handleViolation(
           "FULLSCREEN_EXIT",
           "Fullscreen mode is required during the exam.",
         );
+        if (enforcementActive) {
+          requestFullscreen();
+        }
       }
     };
 
@@ -479,6 +509,17 @@ const StudentExam = () => {
 
   const handleNext = async () => {
     if (currentQuestionIndex < questions.length - 1) {
+      const fromQuestion = questions[currentQuestionIndex];
+      const toQuestion = questions[currentQuestionIndex + 1];
+      if (sessionData?.id && fromQuestion?.id && toQuestion?.id && !submitted) {
+        logNavigation(sessionData.id, {
+          fromQuestionId: fromQuestion.id,
+          toQuestionId: toQuestion.id,
+          direction: "next",
+        }).catch(() => {
+          /* ignore navigation logging errors */
+        });
+      }
       await closeCurrentWindow(new Date());
       setCurrentQuestionIndex((prev) => prev + 1);
     }
@@ -486,6 +527,17 @@ const StudentExam = () => {
 
   const handlePrevious = async () => {
     if (currentQuestionIndex > 0) {
+      const fromQuestion = questions[currentQuestionIndex];
+      const toQuestion = questions[currentQuestionIndex - 1];
+      if (sessionData?.id && fromQuestion?.id && toQuestion?.id && !submitted) {
+        logNavigation(sessionData.id, {
+          fromQuestionId: fromQuestion.id,
+          toQuestionId: toQuestion.id,
+          direction: "previous",
+        }).catch(() => {
+          /* ignore navigation logging errors */
+        });
+      }
       await closeCurrentWindow(new Date());
       setCurrentQuestionIndex((prev) => prev - 1);
     }

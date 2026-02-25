@@ -14,11 +14,13 @@ import {
   getSessions,
   getStudents,
   loginAdmin,
+  resetDatabase,
 } from "../controllers/adminController.js";
 import {
   adminLoginSchema,
   examCreateSchema,
   questionCreateSchema,
+  resetSchema,
 } from "../utils/validators.js";
 
 const router = Router();
@@ -41,5 +43,6 @@ router.get("/students", requireAdmin, getStudents);
 router.delete("/students/:id", requireAdmin, deleteStudent);
 router.get("/sessions", requireAdmin, getSessions);
 router.get("/sessions/:sessionId", requireAdmin, getSessionDetail);
+router.post("/reset", requireAdmin, validate(resetSchema), resetDatabase);
 
 export default router;

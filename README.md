@@ -11,6 +11,8 @@ A state-of-the-art, real-time examination platform with advanced telemetry, gran
 - **Live Updates**: Instant notification of student registrations, exam starts, and submissions via Socket.IO.
 - **Dynamic Dashboard**: Real-time refreshing of the Students and Sessions tabs without manual reloads.
 - **Empty States**: Clean, user-friendly messages for a polished look when data is empty.
+- **Navigation Insights**: Live tracking of Previous/Next transitions per question.
+- **Reset Workflow**: Admin can reset session data from the dashboard with password confirmation (exams and questions are preserved).
 
 ### 🖱️ Advanced Telemetry & Tracking
 
@@ -18,18 +20,29 @@ A state-of-the-art, real-time examination platform with advanced telemetry, gran
 - **Granular Categorization**: Clicks are automatically logged into specific sections: Header, Integrity Monitoring, Stress Bar, Question Area, and Navigation.
 - **Sequential Answering**: Enforced logical flow where students must answer the current question to proceed.
 - **Integrity Monitor**: Real-time detection of tab switching, window minimizing, and fullscreen exits with a configurable violation threshold.
+- **Fullscreen Enforcement**: The /exam page auto-enters fullscreen and logs exits as violations.
 
 ### 💎 Premium User Experience
 
 - **Vibrant UI**: Sleek dark mode with glassmorphism effects and modern typography.
 - **Custom Components**: Premium confirmation modals and designer dropdowns replacing standard browser defaults.
 - **Responsive Navigation**: Collapsible sidebar with high-quality micro-animations.
+- **CSV Exports**: Session and per-question exports in CSV format.
 
 ### 🛠️ Technical Stack
 
 - **Frontend**: Next.js 16 (Turbopack), React 19, Socket.IO Client, Axios.
-- **Backend**: Express.js, Socket.IO, MongoDB, JWT Authentication.
-- **Database**: High-precision timeseries logging for telemetry data.
+- **Backend**: Express.js, Socket.IO, Mongoose ODM, JWT Authentication.
+- **Database**: MongoDB with Mongoose models and high-precision timeseries logging.
+
+---
+
+## ✅ Scoring & Evaluation
+
+- **Admin Answer Key**: Admins store a correct answer per question (MCQ or text).
+- **Auto Scoring**: On submission, each response is scored and stored.
+- **Per-Question Result**: Each answer is marked correct or wrong in the session detail view.
+- **Session Score**: Total score is stored and displayed in the admin response page.
 
 ---
 
@@ -110,6 +123,7 @@ graph TD
 - **JWT Protection**: All admin routes are secured via JSON Web Tokens.
 - **SSR Safety**: Robust guards for client-side storage access during Server-Side Rendering.
 - **Sequential Guard**: Backend verification ensures questions are answered in the correct order.
+- **Reset Behavior**: The admin Reset button clears students, sessions, responses, telemetry, and click series while keeping exams and questions intact.
 
 ---
 

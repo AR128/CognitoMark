@@ -14,7 +14,12 @@ const Questions = () => {
   const [exams, setExams] = useState([]);
   const [selected, setSelected] = useState("");
   const [questions, setQuestions] = useState([]);
-  const [form, setForm] = useState({ text: "", type: "mcq", options: "" });
+  const [form, setForm] = useState({
+    text: "",
+    type: "mcq",
+    options: "",
+    correctAnswer: "",
+  });
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState(null);
   const [modal, setModal] = useState({ isOpen: false, id: null });
@@ -82,6 +87,11 @@ const Questions = () => {
             .map((o) => o.trim())
             .filter(Boolean)
         : [];
+    const trimmedAnswer = form.correctAnswer.trim();
+    if (form.type === "mcq" && (!trimmedAnswer || !options.includes(trimmedAnswer))) {
+      setError("Correct answer must match one of the MCQ options.");
+      return;
+    }
 
     try {
       setError("");
@@ -90,9 +100,10 @@ const Questions = () => {
         text: form.text,
         type: form.type,
         options,
+        correctAnswer: trimmedAnswer || undefined,
       });
 
-      setForm({ text: "", type: "mcq", options: "" });
+      setForm({ text: "", type: "mcq", options: "", correctAnswer: "" });
       loadQuestions(selected);
     } catch (err) {
       setError(err?.response?.data?.error || "Failed to create question.");
@@ -151,7 +162,11 @@ const Questions = () => {
           className="input"
           value={form.type}
           onChange={(e) =>
-            setForm((prev) => ({ ...prev, type: e.target.value }))
+            setForm((prev) => ({
+              ...prev,
+              type: e.target.value,
+              correctAnswer: "",
+            }))
           }
         >
           <option value="mcq">MCQ</option>
@@ -169,6 +184,36 @@ const Questions = () => {
           />
         )}
 
+        {form.type === "mcq" ? (
+          <select
+            className="input"
+            value={form.correctAnswer}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, correctAnswer: e.target.value }))
+            }
+          >
+            <option value="">Select correct answer</option>
+            {form.options
+              .split(",")
+              .map((o) => o.trim())
+              .filter(Boolean)
+              .map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+          </select>
+        ) : (
+          <input
+            className="input"
+            placeholder="Correct answer"
+            value={form.correctAnswer}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, correctAnswer: e.target.value }))
+            }
+          />
+        )}
+
         <button className="btn" onClick={handleCreate}>
           Add Question
         </button>
@@ -181,6 +226,7 @@ const Questions = () => {
             <tr>
               <th>Text</th>
               <th>Type</th>
+              <th>Correct Answer</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -189,6 +235,7 @@ const Questions = () => {
               <tr key={q.id}>
                 <td>{q.text}</td>
                 <td>{q.type}</td>
+                <td>{q.correct_answer || "-"}</td>
                 <td>
                   <button
                     className="btn danger"
