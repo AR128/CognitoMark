@@ -85,11 +85,33 @@ export const startExam = async (req, res, next) => {
 
     await examSessions().create(session);
 
-    const questionsList = await questions()
+    let questionsList = await questions()
       .find({ exam_id: parsedExamId })
       .select({ _id: 0, correct_answer: 0 })
-      .sort({ created_at: 1 })
+      .sort({ order: 1, created_at: 1 })
       .lean();
+
+    if (questionsList.some((q) => !Number.isFinite(q.order))) {
+      const resequenced = [...questionsList].sort((a, b) => {
+        const aTime = new Date(a.created_at || 0).getTime();
+        const bTime = new Date(b.created_at || 0).getTime();
+        return aTime - bTime;
+      });
+      const bulkUpdates = resequenced.map((q, index) => ({
+        updateOne: {
+          filter: { id: q.id },
+          update: { $set: { order: index + 1 } },
+        },
+      }));
+      if (bulkUpdates.length) {
+        await questions().bulkWrite(bulkUpdates, { ordered: false });
+      }
+      questionsList = await questions()
+        .find({ exam_id: parsedExamId })
+        .select({ _id: 0, correct_answer: 0 })
+        .sort({ order: 1, created_at: 1 })
+        .lean();
+    }
 
     getIo().emit("student_started", {
       sessionId: session.id,

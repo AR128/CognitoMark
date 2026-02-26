@@ -399,14 +399,22 @@ select option {
 
 .exam-layout {
   display: grid;
-  grid-template-columns: minmax(220px, 260px) minmax(180px, 220px) minmax(0, 1fr);
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+  margin-top: 16px;
+}
+
+.exam-main {
+  display: grid;
+  gap: 16px;
 }
 
 .question-panel {
   display: grid;
   gap: 12px;
+  position: sticky;
+  top: 90px;
 }
 
 .question-panel-header {
@@ -517,9 +525,25 @@ select option {
   color: var(--muted);
 }
 
+.drag-handle {
+  cursor: grab;
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 1px;
+  user-select: none;
+}
+
+.drag-row {
+  background: rgba(58, 167, 255, 0.08);
+}
+
 @media (max-width: 720px) {
   .exam-container {
     max-width: 100%;
+  }
+
+  .exam-layout {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .exam-layout {
@@ -537,12 +561,6 @@ select option {
 
   .mcq-options {
     grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 980px) {
-  .exam-layout {
-    grid-template-columns: 1fr;
   }
 }
 
