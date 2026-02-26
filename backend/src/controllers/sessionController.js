@@ -138,29 +138,39 @@ export const saveResponse = async (req, res, next) => {
       return res.status(404).json({ error: "Session not found" });
     }
 
-    const existingResponse = await responses().findOne(
-      { session_id: parsedSessionId, question_id: parsedQuestionId },
-      { id: 1, _id: 0 },
-    ).lean();
+    const now = new Date();
+    const responseId = await getNextSequence("responses");
 
-    if (existingResponse) {
+    try {
       await responses().updateOne(
         { session_id: parsedSessionId, question_id: parsedQuestionId },
         {
           $set: {
             answer,
-            updated_at: new Date(),
+            updated_at: now,
+          },
+          $setOnInsert: {
+            id: responseId,
+            session_id: parsedSessionId,
+            question_id: parsedQuestionId,
+            created_at: now,
+          },
+        },
+        { upsert: true },
+      );
+    } catch (error) {
+      if (error?.code !== 11000) {
+        throw error;
+      }
+      await responses().updateOne(
+        { session_id: parsedSessionId, question_id: parsedQuestionId },
+        {
+          $set: {
+            answer,
+            updated_at: now,
           },
         },
       );
-    } else {
-      await responses().create({
-        id: await getNextSequence("responses"),
-        session_id: parsedSessionId,
-        question_id: parsedQuestionId,
-        answer,
-        updated_at: new Date(),
-      });
     }
 
     await insertTelemetryEvent(parsedSessionId, "answer_saved", {
