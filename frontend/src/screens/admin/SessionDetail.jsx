@@ -25,6 +25,27 @@ const buildCsv = (headers, rows) => {
   return lines.join("\r\n");
 };
 
+const formatAnswerSwitches = (switches) => {
+  if (!Array.isArray(switches) || switches.length === 0) return "";
+  return switches
+    .map((entry) => `${entry.from ?? "-"} -> ${entry.to ?? "-"}`)
+    .join(" | ");
+};
+
+const formatSelectionTime = (value) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value);
+  return date.toLocaleString();
+};
+
+const formatSwitchTime = (value) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value);
+  return date.toLocaleString();
+};
+
 const SessionDetail = () => {
   const clickWindowSeconds = Math.round(
     (Number(process.env.NEXT_PUBLIC_CLICK_WINDOW_MS) || 60000) / 1000,
@@ -74,6 +95,8 @@ const SessionDetail = () => {
       "Result",
       "Stress",
       "Violations",
+      "Total Switches",
+      "Answer Switches",
       "Total Clicks",
       "Header",
       "Stress Bar",
@@ -90,6 +113,8 @@ const SessionDetail = () => {
       r.is_correct ? "Correct" : "Wrong",
       Math.round(Number(r.avg_stress_level || 0)),
       r.violation_count || 0,
+      r.total_switches || 0,
+      formatAnswerSwitches(r.answer_switches),
       r.click_count,
       r.header_clicks,
       r.stress_clicks,
@@ -273,23 +298,37 @@ const SessionDetail = () => {
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "space-between",
                   alignItems: "flex-start",
+                  justifyContent: "space-between",
+                  gap: "16px",
                 }}
               >
-                <p style={{ margin: 0, flex: 1 }}>
-                  <strong>Q:</strong> {r.text}
-                </p>
-                <div style={{ textAlign: "right" }}>
-                  <div className="badge">{r.click_count} total clicks</div>
-                  {r.violation_count > 0 && (
-                    <div style={{ marginTop: "6px" }}>
+                <div style={{ flex: 1 }}>
+                  <p style={{ margin: 0, fontSize: "15px" }}>
+                    <strong>Q:</strong> {r.text}
+                  </p>
+                  <div style={{ marginTop: "10px" }}>
+                    <strong>A:</strong> {r.answer || "-"}
+                  </div>
+                  <div style={{ marginTop: "6px", fontSize: "12px", color: "var(--muted)" }}>
+                    <strong>Correct answer:</strong> {r.correct_answer || "-"}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", minWidth: "180px" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      alignItems: "flex-end",
+                    }}
+                  >
+                    <div className="badge">{r.click_count} total clicks</div>
+                    {r.violation_count > 0 && (
                       <span className="badge">
                         {r.violation_count} violations
                       </span>
-                    </div>
-                  )}
-                  <div style={{ marginTop: "6px" }}>
+                    )}
                     <span
                       className="badge"
                       style={{
@@ -305,41 +344,115 @@ const SessionDetail = () => {
                       {r.is_correct ? "Correct" : "Wrong"}
                     </span>
                   </div>
-                  <div style={{ marginTop: "6px", fontSize: "12px" }}>
-                    <strong>Correct Answer:</strong>{" "}
-                    {r.correct_answer || "-"}
-                  </div>
-                  <div style={{ marginTop: "6px", fontSize: "12px" }}>
-                    <strong>Prev:</strong> {r.prev_clicks || 0} |{" "}
-                    <strong>Next:</strong> {r.next_clicks || 0}
-                  </div>
-                  <div style={{ marginTop: "6px", fontSize: "12px" }}>
-                    <strong>Stress:</strong>{" "}
-                    {Math.round(Number(r.avg_stress_level || 0))}
-                  </div>
                   <div
                     style={{
-                      fontSize: "11px",
-                      color: "var(--muted)",
-                      marginTop: "8px",
+                      marginTop: "10px",
+                      fontSize: "12px",
+                      textAlign: "right",
                       display: "grid",
-                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                      gap: "6px 14px",
-                      textAlign: "left",
+                      gap: "6px",
                     }}
                   >
-                    <span>Header: {r.header_clicks}</span>
-                    <span>Stress Bar: {r.stress_clicks}</span>
-                    <span>Panel: {r.panel_clicks || 0}</span>
-                    <span>Question: {r.question_clicks}</span>
-                    <span>Navigation: {r.footer_clicks}</span>
-                    <span>Other: {r.other_clicks}</span>
+                    <div>
+                      <strong>Prev:</strong> {r.prev_clicks || 0} |{" "}
+                      <strong>Next:</strong> {r.next_clicks || 0}
+                    </div>
+                    <div>
+                      <strong>Stress:</strong>{" "}
+                      {Math.round(Number(r.avg_stress_level || 0))}
+                    </div>
                   </div>
                 </div>
               </div>
-              <p style={{ marginTop: "1rem", marginBottom: 0 }}>
-                <strong>A:</strong> {r.answer || "-"}
-              </p>
+              <div
+                style={{
+                  marginTop: "12px",
+                  fontSize: "11px",
+                  color: "var(--muted)",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                  gap: "6px 12px",
+                }}
+              >
+                <span>Header: {r.header_clicks}</span>
+                <span>Stress Bar: {r.stress_clicks}</span>
+                <span>Panel: {r.panel_clicks || 0}</span>
+                <span>Question: {r.question_clicks}</span>
+                <span>Navigation: {r.footer_clicks}</span>
+                <span>Other: {r.other_clicks}</span>
+              </div>
+              {r.type === "mcq" && (
+                <div style={{ marginTop: "16px" }}>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                      gap: "16px",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "12px", marginBottom: "6px" }}>
+                        <strong>Switches</strong> (total {r.total_switches || 0})
+                      </div>
+                      {r.answer_switches?.length ? (
+                        <div className="table-wrap compact">
+                          <table className="table compact-time">
+                            <thead>
+                              <tr>
+                                <th>#</th>
+                                <th>From</th>
+                                <th>To</th>
+                                <th>Time</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {r.answer_switches.map((entry, idx) => (
+                                <tr key={`${r.id}-switch-${idx}`}>
+                                  <td>{idx + 1}</td>
+                                  <td>{entry.from ?? "-"}</td>
+                                  <td>{entry.to ?? "-"}</td>
+                                  <td>{formatSwitchTime(entry.at)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div style={{ color: "var(--muted)" }}>-</div>
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "12px", marginBottom: "6px" }}>
+                        <strong>Answer selections</strong>
+                      </div>
+                      {r.answer_selections?.length ? (
+                        <div className="table-wrap compact">
+                          <table className="table compact-time">
+                            <thead>
+                              <tr>
+                                <th>#</th>
+                                <th>Option</th>
+                                <th>Time</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {r.answer_selections.map((entry, idx) => (
+                                <tr key={`${r.id}-selection-${idx}`}>
+                                  <td>{idx + 1}</td>
+                                  <td>{entry.answer}</td>
+                                  <td>{formatSelectionTime(entry.at)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div style={{ color: "var(--muted)" }}>-</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

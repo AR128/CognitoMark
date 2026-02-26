@@ -1,4 +1,4 @@
-import { getNextSequence } from "../db/database.js";
+import { getCollection, getNextSequence } from "../db/database.js";
 import { getIo } from "../sockets/index.js";
 import {
   ClickTimeseries,
@@ -24,6 +24,22 @@ const responses = () => Response;
 const telemetry = () => TelemetryEvent;
 const clickTimeseries = () => ClickTimeseries;
 const questions = () => Question;
+
+const syncTelemetryCounter = async () => {
+  const latest = await telemetry()
+    .findOne()
+    .sort({ id: -1 })
+    .select({ id: 1, _id: 0 })
+    .lean();
+  const latestId = Number(latest?.id);
+  if (Number.isFinite(latestId)) {
+    await getCollection("counters").updateOne(
+      { _id: "telemetry_events" },
+      { $set: { seq: latestId } },
+      { upsert: true },
+    );
+  }
+};
 
 const insertTelemetryEvent = async (sessionId, type, value, meta = {}) => {
   const payload = {
@@ -53,14 +69,17 @@ const insertTelemetryEvent = async (sessionId, type, value, meta = {}) => {
     payload.to_question_number = meta.toQuestionNumber;
   }
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
     try {
       const id = await getNextSequence("telemetry_events");
       await telemetry().create({ id, ...payload });
       return;
     } catch (error) {
-      if (error?.code === 11000 && attempt < 2) {
-        continue;
+      if (error?.code === 11000) {
+        await syncTelemetryCounter();
+        if (attempt < 5) {
+          continue;
+        }
       }
       throw error;
     }
@@ -146,6 +165,22 @@ export const saveResponse = async (req, res, next) => {
       return res.status(404).json({ error: "Session not found" });
     }
 
+    const [existingResponse, question] = await Promise.all([
+      responses()
+        .findOne({ session_id: parsedSessionId, question_id: parsedQuestionId })
+        .select({ answer: 1, _id: 0 })
+        .lean(),
+      questions()
+        .findOne({ id: parsedQuestionId })
+        .select({ type: 1, _id: 0 })
+        .lean(),
+    ]);
+
+    const normalizeMcqAnswer = (value) =>
+      typeof value === "string" ? value : "";
+    const previousAnswer = normalizeMcqAnswer(existingResponse?.answer);
+    const nextAnswer = normalizeMcqAnswer(answer);
+
     const now = new Date();
     const responseId = await getNextSequence("responses");
 
@@ -185,11 +220,61 @@ export const saveResponse = async (req, res, next) => {
       questionId: parsedQuestionId,
     });
 
+    if (
+      question?.type === "mcq" &&
+      previousAnswer &&
+      nextAnswer &&
+      previousAnswer !== nextAnswer
+    ) {
+      await insertTelemetryEvent(
+        parsedSessionId,
+        "ANSWER_SWITCH",
+        { from: previousAnswer, to: nextAnswer },
+        { questionId: parsedQuestionId },
+      );
+    }
+
     getIo().emit("answer_saved", {
       sessionId: Number(parsedSessionId),
       questionId: parsedQuestionId,
       answer,
     });
+
+    return res.json({ success: true });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const logAnswerSelection = async (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const { questionId, answer } = req.body;
+
+    const parsedSessionId = toNumber(sessionId);
+    const parsedQuestionId = toNumber(questionId);
+    if (!parsedSessionId || !parsedQuestionId) {
+      return res.status(400).json({ error: "Invalid session or question id" });
+    }
+
+    const session = await findSessionById(parsedSessionId);
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+
+    const question = await questions()
+      .findOne({ id: parsedQuestionId })
+      .select({ type: 1, _id: 0 })
+      .lean();
+
+    if (question?.type === "mcq" && typeof answer === "string") {
+      await insertTelemetryEvent(
+        parsedSessionId,
+        "ANSWER_SELECTED",
+        { answer },
+        { questionId: parsedQuestionId },
+      );
+    }
 
     return res.json({ success: true });
   } catch (error) {

@@ -1,0 +1,151 @@
+const unifiedSchema = {
+  admin: {
+    collection: "admins",
+    fields: {
+      id: { type: "Number", required: true, min: 1 },
+      username: { type: "String", required: true, trim: true, minlength: 2 },
+      password_hash: { type: "String", required: true },
+      created_at: { type: "Date" },
+      updated_at: { type: "Date" },
+    },
+    indexes: [
+      { fields: { id: 1 }, unique: true },
+      { fields: { username: 1 }, unique: true },
+    ],
+  },
+  student: {
+    collection: "students",
+    fields: {
+      id: { type: "Number", required: true, min: 1 },
+      student_id: { type: "String", required: true, trim: true, minlength: 2 },
+      name: { type: "String", required: true, trim: true, minlength: 2 },
+      created_at: { type: "Date" },
+      updated_at: { type: "Date" },
+    },
+    indexes: [
+      { fields: { id: 1 }, unique: true },
+      { fields: { student_id: 1 }, unique: true },
+    ],
+  },
+  exam: {
+    collection: "exams",
+    fields: {
+      id: { type: "Number", required: true, min: 1 },
+      title: { type: "String", required: true, trim: true, minlength: 3 },
+      created_at: { type: "Date" },
+      updated_at: { type: "Date" },
+    },
+    indexes: [{ fields: { id: 1 }, unique: true }],
+  },
+  question: {
+    collection: "questions",
+    fields: {
+      id: { type: "Number", required: true, min: 1 },
+      exam_id: { type: "Number", required: true, min: 1 },
+      text: { type: "String", required: true, trim: true, minlength: 3 },
+      type: { type: "String", required: true, enum: ["mcq", "text"] },
+      options: { type: "[String]", default: [] },
+      correct_answer: { type: "String", default: null, trim: true },
+      order: { type: "Number", default: null, min: 1 },
+      created_at: { type: "Date" },
+      updated_at: { type: "Date" },
+    },
+    indexes: [
+      { fields: { id: 1 }, unique: true },
+      { fields: { exam_id: 1 } },
+    ],
+  },
+  exam_session: {
+    collection: "exam_sessions",
+    fields: {
+      id: { type: "Number", required: true, min: 1 },
+      student_id: { type: "Number", required: true, min: 1 },
+      exam_id: { type: "Number", required: true, min: 1 },
+      started_at: { type: "Date", required: true },
+      submitted_at: { type: "Date", default: null },
+      total_clicks: { type: "Number", default: 0, min: 0 },
+      stress_level: { type: "Number", default: 0, min: 0, max: 10 },
+      feedback: { type: "String", default: null, trim: true },
+      score_total: { type: "Number", default: 0, min: 0 },
+      score_obtained: { type: "Number", default: 0, min: 0 },
+      created_at: { type: "Date" },
+      updated_at: { type: "Date" },
+    },
+    indexes: [
+      { fields: { id: 1 }, unique: true },
+      { fields: { exam_id: 1 } },
+      { fields: { student_id: 1 } },
+    ],
+  },
+  response: {
+    collection: "responses",
+    fields: {
+      id: { type: "Number", required: true, min: 1 },
+      session_id: { type: "Number", required: true, min: 1 },
+      question_id: { type: "Number", required: true, min: 1 },
+      answer: { type: "String", default: null, trim: true },
+      is_correct: { type: "Boolean", default: false },
+      created_at: { type: "Date" },
+      updated_at: { type: "Date" },
+    },
+    indexes: [
+      { fields: { id: 1 }, unique: true },
+      { fields: { session_id: 1, question_id: 1 }, unique: true },
+    ],
+  },
+  telemetry_event: {
+    collection: "telemetry_events",
+    fields: {
+      id: { type: "Number", required: true, min: 1 },
+      session_id: { type: "Number", required: true, min: 1 },
+      question_id: { type: "Number", default: null, min: 1 },
+      to_question_id: { type: "Number", default: null, min: 1 },
+      from_question_number: { type: "Number", default: null, min: 1 },
+      to_question_number: { type: "Number", default: null, min: 1 },
+      type: { type: "String", required: true },
+      direction: { type: "String", enum: ["next", "previous"], default: null },
+      value: { type: "String", default: null },
+      created_at: { type: "Date" },
+      updated_at: { type: "Date" },
+    },
+    indexes: [
+      { fields: { id: 1 }, unique: true },
+      { fields: { session_id: 1 } },
+    ],
+  },
+  click_timeseries: {
+    collection: "click_timeseries",
+    fields: {
+      id: { type: "Number", required: true, min: 1 },
+      session_id: { type: "Number", required: true, min: 1 },
+      question_id: { type: "Number", default: null, min: 1 },
+      window_start: { type: "Date", required: true },
+      window_end: { type: "Date", required: true },
+      header_clicks: { type: "Number", default: 0, min: 0 },
+      integrity_clicks: { type: "Number", default: 0, min: 0 },
+      stress_clicks: { type: "Number", default: 0, min: 0 },
+      panel_clicks: { type: "Number", default: 0, min: 0 },
+      stress_level: { type: "Number", default: 0, min: 0, max: 10 },
+      question_clicks: { type: "Number", default: 0, min: 0 },
+      footer_clicks: { type: "Number", default: 0, min: 0 },
+      other_clicks: { type: "Number", default: 0, min: 0 },
+      click_count: { type: "Number", required: true, min: 0 },
+      created_at: { type: "Date" },
+      updated_at: { type: "Date" },
+    },
+    indexes: [
+      { fields: { id: 1 }, unique: true },
+      { fields: { session_id: 1 } },
+    ],
+  },
+  counter: {
+    collection: "counters",
+    fields: {
+      _id: { type: "String", required: true },
+      seq: { type: "Number", default: 0, min: 0 },
+    },
+    indexes: [],
+  },
+};
+
+export default unifiedSchema;

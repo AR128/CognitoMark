@@ -31,6 +31,11 @@ export const responseSchema = z.object({
   answer: z.string().optional(),
 });
 
+export const answerSelectionSchema = z.object({
+  questionId: z.number().int(),
+  answer: z.string(),
+});
+
 export const clicksSchema = z.object({
   totalClicks: z.number().int().nonnegative(),
 });

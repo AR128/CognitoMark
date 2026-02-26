@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { debounce } from "../../utils/debounce";
 import { storage } from "../../utils/storage";
 import {
+  logAnswerSelection,
   logClickFrequency,
   logNavigation,
   logViolation,
@@ -445,8 +446,15 @@ const StudentExam = () => {
     [sessionData?.id, submitted],
   );
 
-  const handleAnswerChange = (questionId, value) => {
+  const handleAnswerChange = (questionId, value, questionType) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
+    if (questionType === "mcq" && sessionData?.id && !submitted) {
+      logAnswerSelection(sessionData.id, { questionId, answer: value }).catch(
+        () => {
+          /* ignore selection logging errors */
+        },
+      );
+    }
     debouncedSave(questionId, value);
   };
 
@@ -684,6 +692,7 @@ const StudentExam = () => {
                             handleAnswerChange(
                               currentQuestion.id,
                               e.target.value,
+                              "mcq",
                             )
                           }
                           disabled={submitted}
@@ -698,7 +707,11 @@ const StudentExam = () => {
                     rows="3"
                     value={answers[currentQuestion.id] || ""}
                     onChange={(e) =>
-                      handleAnswerChange(currentQuestion.id, e.target.value)
+                      handleAnswerChange(
+                        currentQuestion.id,
+                        e.target.value,
+                        "text",
+                      )
                     }
                     disabled={submitted}
                   />
