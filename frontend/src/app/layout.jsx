@@ -6,8 +6,8 @@ export const metadata = {
 };
 
 const RootLayout = ({ children }) => (
-  <html lang="en">
-    <body>
+  <html lang="en" suppressHydrationWarning>
+    <body suppressHydrationWarning>
       <Navbar />
       {children}
     </body>
