@@ -72,6 +72,7 @@ const StudentExam = () => {
     header: 0,
     integrity: 0,
     stress: 0,
+    questionPanel: 0,
     question: 0,
     footer: 0,
     other: 0,
@@ -142,6 +143,7 @@ const StudentExam = () => {
         header: 0,
         integrity: 0,
         stress: 0,
+        questionPanel: 0,
         question: 0,
         footer: 0,
         other: 0,
@@ -154,6 +156,7 @@ const StudentExam = () => {
         headerClicks: sectionClicks.header,
         integrityClicks: sectionClicks.integrity,
         stressClicks: sectionClicks.stress,
+        questionPanelClicks: sectionClicks.questionPanel,
         stressLevel: stress,
         questionClicks: sectionClicks.question,
         footerClicks: sectionClicks.footer,
@@ -233,37 +236,11 @@ const StudentExam = () => {
     }
   }, [sessionData, sessionId, submitted, forcedExitModal.visible, exitFullscreen, router]);
 
-  useEffect(
-    () => () => {
-      exitFullscreen();
-    },
-    [exitFullscreen],
-  );
-
-  useEffect(() => {
-    if (enforcementActive) {
-      enforcementStartRef.current = Date.now();
-      hasFullscreenRef.current = Boolean(
-        typeof document !== "undefined" && document.fullscreenElement,
-      );
-      requestFullscreen();
-    }
-  }, [enforcementActive, requestFullscreen]);
-
   useEffect(() => {
     if (!enforcementActive) {
-      if (clickTimerRef.current) {
-        clearInterval(clickTimerRef.current);
-        clickTimerRef.current = null;
-      }
-      clickWindowStartRef.current = null;
-      clickCountRef.current = 0;
-      clickQueueRef.current = [];
-      hasFullscreenRef.current = false;
-      return undefined;
+      return;
     }
 
-    clickWindowStartRef.current = new Date();
     clickTimerRef.current = window.setInterval(() => {
       closeCurrentWindow().catch(() => {
         setStatus("Unable to sync click data. Retrying automatically.");
@@ -507,19 +484,30 @@ const StudentExam = () => {
     }
   };
 
+  const logQuestionNavigation = (fromIndex, toIndex, directionOverride) => {
+    const fromQuestion = questions[fromIndex];
+    const toQuestion = questions[toIndex];
+    if (!sessionData?.id || submitted || !fromQuestion?.id || !toQuestion?.id) {
+      return;
+    }
+
+    const direction =
+      directionOverride || (toIndex > fromIndex ? "next" : "previous");
+
+    logNavigation(sessionData.id, {
+      fromQuestionId: fromQuestion.id,
+      toQuestionId: toQuestion.id,
+      direction,
+      fromQuestionNumber: fromIndex + 1,
+      toQuestionNumber: toIndex + 1,
+    }).catch(() => {
+      /* ignore navigation logging errors */
+    });
+  };
+
   const handleNext = async () => {
     if (currentQuestionIndex < questions.length - 1) {
-      const fromQuestion = questions[currentQuestionIndex];
-      const toQuestion = questions[currentQuestionIndex + 1];
-      if (sessionData?.id && fromQuestion?.id && toQuestion?.id && !submitted) {
-        logNavigation(sessionData.id, {
-          fromQuestionId: fromQuestion.id,
-          toQuestionId: toQuestion.id,
-          direction: "next",
-        }).catch(() => {
-          /* ignore navigation logging errors */
-        });
-      }
+      logQuestionNavigation(currentQuestionIndex, currentQuestionIndex + 1, "next");
       await closeCurrentWindow(new Date());
       setCurrentQuestionIndex((prev) => prev + 1);
     }
@@ -527,20 +515,25 @@ const StudentExam = () => {
 
   const handlePrevious = async () => {
     if (currentQuestionIndex > 0) {
-      const fromQuestion = questions[currentQuestionIndex];
-      const toQuestion = questions[currentQuestionIndex - 1];
-      if (sessionData?.id && fromQuestion?.id && toQuestion?.id && !submitted) {
-        logNavigation(sessionData.id, {
-          fromQuestionId: fromQuestion.id,
-          toQuestionId: toQuestion.id,
-          direction: "previous",
-        }).catch(() => {
-          /* ignore navigation logging errors */
-        });
-      }
+      logQuestionNavigation(currentQuestionIndex, currentQuestionIndex - 1, "previous");
       await closeCurrentWindow(new Date());
       setCurrentQuestionIndex((prev) => prev - 1);
     }
+  };
+
+  const handleJumpTo = async (targetIndex) => {
+    if (
+      submitted ||
+      targetIndex === currentQuestionIndex ||
+      targetIndex < 0 ||
+      targetIndex >= questions.length
+    ) {
+      return;
+    }
+
+    logQuestionNavigation(currentQuestionIndex, targetIndex);
+    await closeCurrentWindow(new Date());
+    setCurrentQuestionIndex(targetIndex);
   };
 
   const currentQuestion = questions[currentQuestionIndex];
@@ -580,7 +573,7 @@ const StudentExam = () => {
       >
         <div className="stress-header">
           <div>
-            <div className="stress-title">Stress Level</div>
+            <div className="stress-title">Question Difficulty</div>
             <div className="stress-value">{stressLabel}</div>
           </div>
           <div className="stress-pill">{stress}/10</div>
@@ -601,97 +594,138 @@ const StudentExam = () => {
         </div>
       </div>
 
-      <div className="card" data-section="question">
-        <h3 className="question-title">Question {currentQuestionIndex + 1}.</h3>
-        {currentQuestion && (
-          <div className="card question-body" style={{ background: "var(--card-2)" }}>
-            <p>{currentQuestion.text}</p>
-            {currentQuestion.type === "mcq" ? (
-              <div
-                className={`mcq-options${
-                  currentQuestion.options?.some((opt) =>
-                    String(opt).trim().length > 28,
-                  )
-                    ? " single-column"
-                    : ""
-                }`}
-              >
-                {currentQuestion.options?.map((opt) => (
-                  <label key={opt} className="mcq-option">
-                    <input
-                      type="radio"
-                      name={`question-${currentQuestion.id}`}
-                      value={opt}
-                      checked={answers[currentQuestion.id] === opt}
-                      onChange={(e) =>
-                        handleAnswerChange(currentQuestion.id, e.target.value)
-                      }
-                      disabled={submitted}
-                    />
-                    <span>{opt}</span>
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <textarea
-                className="input"
-                rows="3"
-                value={answers[currentQuestion.id] || ""}
-                onChange={(e) =>
-                  handleAnswerChange(currentQuestion.id, e.target.value)
-                }
-                disabled={submitted}
-              />
-            )}
-            <div className="question-actions" data-section="footer">
-              <div className="question-actions-buttons">
-                <button
-                  className="btn"
-                  onClick={handlePrevious}
-                  disabled={currentQuestionIndex === 0 || submitted}
-                  style={{
-                    background:
-                      currentQuestionIndex === 0
-                        ? "var(--border)"
-                        : "var(--primary)",
-                  }}
-                >
-                  Previous
-                </button>
-                {!isLastQuestion ? (
-                  <button
-                    className="btn"
-                    onClick={handleNext}
-                    disabled={!isQuestionAnswered || submitted}
-                    style={{
-                      background: !isQuestionAnswered
-                        ? "var(--border)"
-                        : "var(--primary)",
-                    }}
-                  >
-                    Next
-                  </button>
-                ) : (
-                  <button
-                    className="btn"
-                    onClick={handleSubmit}
-                    disabled={!canSubmit || submitted}
-                    style={{
-                      background: !canSubmit ? "var(--border)" : "var(--primary)",
-                    }}
-                  >
-                    Submit Exam
-                  </button>
-                )}
-              </div>
-              {!submitted && !isQuestionAnswered && (
-                <p className="question-warning">
-                  Please answer current question to proceed
-                </p>
-              )}
-            </div>
+      <div className="exam-layout">
+        <aside className="card question-panel" aria-label="Questions">
+          <div className="question-panel-header">
+            <h3>Questions</h3>
+            <span className="question-count">{questions.length}</span>
           </div>
-        )}
+          <div className="question-panel-grid">
+            {questions.map((question, index) => {
+              const isAnswered = hasAnswerValue(answers[question.id]);
+              const isActive = index === currentQuestionIndex;
+              return (
+                <button
+                  key={question.id}
+                  type="button"
+                  className={`question-pill${isActive ? " active" : ""}${
+                    isAnswered ? " answered" : ""
+                  }`}
+                  onClick={() => handleJumpTo(index)}
+                  disabled={submitted}
+                  aria-current={isActive ? "step" : undefined}
+                >
+                  {index + 1}
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
+        <div className="exam-main">
+          <div className="card" data-section="question">
+            <h3 className="question-title">
+              Question {currentQuestionIndex + 1}.
+            </h3>
+            {currentQuestion && (
+              <div
+                className="card question-body"
+                style={{ background: "var(--card-2)" }}
+              >
+                <p>{currentQuestion.text}</p>
+                {currentQuestion.type === "mcq" ? (
+                  <div
+                    className={`mcq-options${
+                      currentQuestion.options?.some((opt) =>
+                        String(opt).trim().length > 28,
+                      )
+                        ? " single-column"
+                        : ""
+                    }`}
+                  >
+                    {currentQuestion.options?.map((opt) => (
+                      <label key={opt} className="mcq-option">
+                        <input
+                          type="radio"
+                          name={`question-${currentQuestion.id}`}
+                          value={opt}
+                          checked={answers[currentQuestion.id] === opt}
+                          onChange={(e) =>
+                            handleAnswerChange(
+                              currentQuestion.id,
+                              e.target.value,
+                            )
+                          }
+                          disabled={submitted}
+                        />
+                        <span>{opt}</span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <textarea
+                    className="input"
+                    rows="3"
+                    value={answers[currentQuestion.id] || ""}
+                    onChange={(e) =>
+                      handleAnswerChange(currentQuestion.id, e.target.value)
+                    }
+                    disabled={submitted}
+                  />
+                )}
+                <div className="question-actions" data-section="footer">
+                  <div className="question-actions-buttons">
+                    <button
+                      className="btn"
+                      onClick={handlePrevious}
+                      disabled={currentQuestionIndex === 0 || submitted}
+                      style={{
+                        background:
+                          currentQuestionIndex === 0
+                            ? "var(--border)"
+                            : "var(--primary)",
+                      }}
+                    >
+                      Previous
+                    </button>
+                    {!isLastQuestion ? (
+                      <button
+                        className="btn"
+                        onClick={handleNext}
+                        disabled={!isQuestionAnswered || submitted}
+                        style={{
+                          background: !isQuestionAnswered
+                            ? "var(--border)"
+                            : "var(--primary)",
+                        }}
+                      >
+                        Next
+                      </button>
+                    ) : (
+                      <button
+                        className="btn"
+                        onClick={handleSubmit}
+                        disabled={!canSubmit || submitted}
+                        style={{
+                          background: !canSubmit
+                            ? "var(--border)"
+                            : "var(--primary)",
+                        }}
+                      >
+                        Submit Exam
+                      </button>
+                    )}
+                  </div>
+                  {!submitted && !isQuestionAnswered && (
+                    <p className="question-warning">
+                      Please answer current question to proceed
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {status && (

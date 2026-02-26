@@ -321,6 +321,8 @@ export const getDashboardLive = async (req, res, next) => {
               direction: "$direction",
             },
             count: { $sum: 1 },
+            from_question_number: { $first: "$from_question_number" },
+            to_question_number: { $first: "$to_question_number" },
           },
         },
         {
@@ -354,6 +356,8 @@ export const getDashboardLive = async (req, res, next) => {
             count: 1,
             from_question_text: { $first: "$from_question.text" },
             to_question_text: { $first: "$to_question.text" },
+            from_question_number: 1,
+            to_question_number: 1,
           },
         },
         { $sort: { count: -1 } },
@@ -967,6 +971,7 @@ export const getSessionDetail = async (req, res, next) => {
                   header_clicks: { $sum: "$header_clicks" },
                   integrity_clicks: { $sum: "$integrity_clicks" },
                   stress_clicks: { $sum: "$stress_clicks" },
+                  question_panel_clicks: { $sum: "$question_panel_clicks" },
                   avg_stress_level: { $avg: "$stress_level" },
                   question_clicks: { $sum: "$question_clicks" },
                   footer_clicks: { $sum: "$footer_clicks" },
@@ -997,6 +1002,9 @@ export const getSessionDetail = async (req, res, next) => {
               $ifNull: ["$click_stats.integrity_clicks", 0],
             },
             stress_clicks: { $ifNull: ["$click_stats.stress_clicks", 0] },
+            question_panel_clicks: {
+              $ifNull: ["$click_stats.question_panel_clicks", 0],
+            },
             avg_stress_level: {
               $ifNull: ["$click_stats.avg_stress_level", 0],
             },
@@ -1089,6 +1097,8 @@ export const getSessionDetail = async (req, res, next) => {
               direction: "$direction",
             },
             count: { $sum: 1 },
+            from_question_number: { $first: "$from_question_number" },
+            to_question_number: { $first: "$to_question_number" },
           },
         },
         {
@@ -1122,6 +1132,8 @@ export const getSessionDetail = async (req, res, next) => {
             count: 1,
             from_question_text: { $first: "$from_question.text" },
             to_question_text: { $first: "$to_question.text" },
+            from_question_number: 1,
+            to_question_number: 1,
           },
         },
         { $sort: { count: -1 } },

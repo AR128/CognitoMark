@@ -10,7 +10,7 @@ const Navbar = () => {
 
   return (
     <nav className="nav centered-nav">
-      <div className="logo">Exam Monitor</div>
+      <div className="logo">CognitoMark</div>
       {isAdminSubPage && (
         <Link href="/" className="live-site-link" target="_blank">
           LIVE SITE ↗
