@@ -6,6 +6,7 @@ import {
   deleteQuestion,
   fetchExams,
   fetchQuestions,
+  updateQuestionOrder,
 } from "../../api/adminApi";
 import ConfirmModal from "../../components/ConfirmModal";
 import { useSocket } from "../../hooks/useSocket";
@@ -23,6 +24,7 @@ const Questions = () => {
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState(null);
   const [modal, setModal] = useState({ isOpen: false, id: null });
+  const [draggingId, setDraggingId] = useState(null);
 
   const loadExams = async () => {
     try {
@@ -67,8 +69,13 @@ const Questions = () => {
           loadQuestions(selected);
         }
       },
-      question_deleted: () => {
-        if (selected) {
+      question_deleted: (payload) => {
+        if (selected && String(payload.examId) === String(selected)) {
+          loadQuestions(selected);
+        }
+      },
+      question_reordered: (payload) => {
+        if (selected && String(payload.examId) === String(selected)) {
           loadQuestions(selected);
         }
       },
@@ -129,6 +136,48 @@ const Questions = () => {
     } finally {
       setDeletingId(null);
     }
+  };
+
+  const persistOrder = async (nextQuestions) => {
+    if (!selected) return;
+    try {
+      await updateQuestionOrder(
+        Number(selected),
+        nextQuestions.map((q) => q.id),
+      );
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to reorder questions.");
+      loadQuestions(selected);
+    }
+  };
+
+  const handleDragStart = (questionId) => {
+    setDraggingId(questionId);
+  };
+
+  const handleDragOver = (event) => {
+    event.preventDefault();
+  };
+
+  const handleDrop = async (targetId) => {
+    if (!draggingId || draggingId === targetId) {
+      setDraggingId(null);
+      return;
+    }
+
+    const fromIndex = questions.findIndex((q) => q.id === draggingId);
+    const toIndex = questions.findIndex((q) => q.id === targetId);
+    if (fromIndex < 0 || toIndex < 0) {
+      setDraggingId(null);
+      return;
+    }
+
+    const nextQuestions = [...questions];
+    const [moved] = nextQuestions.splice(fromIndex, 1);
+    nextQuestions.splice(toIndex, 0, moved);
+    setQuestions(nextQuestions);
+    setDraggingId(null);
+    await persistOrder(nextQuestions);
   };
 
   return (
@@ -224,6 +273,7 @@ const Questions = () => {
         <table className="table">
           <thead>
             <tr>
+              <th>#</th>
               <th>Text</th>
               <th>Type</th>
               <th>Correct Answer</th>
@@ -231,8 +281,16 @@ const Questions = () => {
             </tr>
           </thead>
           <tbody>
-            {questions.map((q) => (
-              <tr key={q.id}>
+            {questions.map((q, index) => (
+              <tr
+                key={q.id}
+                draggable
+                onDragStart={() => handleDragStart(q.id)}
+                onDragOver={handleDragOver}
+                onDrop={() => handleDrop(q.id)}
+                className={draggingId === q.id ? "drag-row" : undefined}
+              >
+                <td>{index + 1}</td>
                 <td>{q.text}</td>
                 <td>{q.type}</td>
                 <td>{q.correct_answer || "-"}</td>

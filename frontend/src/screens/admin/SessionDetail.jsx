@@ -77,7 +77,6 @@ const SessionDetail = () => {
       "Total Clicks",
       "Header",
       "Stress Bar",
-      "Question Panel",
       "Question Clicks",
       "Prev",
       "Next",
@@ -94,7 +93,6 @@ const SessionDetail = () => {
       r.click_count,
       r.header_clicks,
       r.stress_clicks,
-      r.question_panel_clicks || 0,
       r.question_clicks,
       r.prev_clicks || 0,
       r.next_clicks || 0,
@@ -332,7 +330,7 @@ const SessionDetail = () => {
                   >
                     <span>Header: {r.header_clicks}</span>
                     <span>Stress Bar: {r.stress_clicks}</span>
-                    <span>Question Panel: {r.question_panel_clicks || 0}</span>
+                    <span>Panel: {r.panel_clicks || 0}</span>
                     <span>Question: {r.question_clicks}</span>
                     <span>Navigation: {r.footer_clicks}</span>
                     <span>Other: {r.other_clicks}</span>

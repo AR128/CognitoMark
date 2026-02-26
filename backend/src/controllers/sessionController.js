@@ -267,7 +267,7 @@ export const logClickFrequency = async (req, res, next) => {
       headerClicks,
       integrityClicks,
       stressClicks,
-      questionPanelClicks,
+      panelClicks,
       stressLevel,
       questionClicks,
       footerClicks,
@@ -323,7 +323,7 @@ export const logClickFrequency = async (req, res, next) => {
       header_clicks: headerClicks || 0,
       integrity_clicks: integrityClicks || 0,
       stress_clicks: stressClicks || 0,
-      question_panel_clicks: questionPanelClicks || 0,
+      panel_clicks: panelClicks || 0,
       stress_level: Number.isFinite(Number(stressLevel))
         ? Number(stressLevel)
         : 0,
@@ -341,7 +341,7 @@ export const logClickFrequency = async (req, res, next) => {
       headerClicks,
       integrityClicks,
       stressClicks,
-      questionPanelClicks,
+      panelClicks,
       questionClicks,
       footerClicks,
       otherClicks,

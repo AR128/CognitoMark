@@ -15,11 +15,13 @@ import {
   getStudents,
   loginAdmin,
   resetDatabase,
+  updateQuestionOrder,
 } from "../controllers/adminController.js";
 import {
   adminLoginSchema,
   examCreateSchema,
   questionCreateSchema,
+  questionOrderSchema,
   resetSchema,
 } from "../utils/validators.js";
 
@@ -32,6 +34,12 @@ router.get("/exams", requireAdmin, getExams);
 router.post("/exams", requireAdmin, validate(examCreateSchema), createExam);
 router.delete("/exams/:id", requireAdmin, deleteExam);
 router.get("/exams/:id/questions", requireAdmin, getExamQuestions);
+router.put(
+  "/exams/:id/questions/order",
+  requireAdmin,
+  validate(questionOrderSchema),
+  updateQuestionOrder
+);
 router.post(
   "/questions",
   requireAdmin,

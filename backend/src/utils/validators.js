@@ -22,6 +22,10 @@ export const questionCreateSchema = z.object({
   correctAnswer: z.string().min(1).optional(),
 });
 
+export const questionOrderSchema = z.object({
+  orderedIds: z.array(z.number().int()).min(1),
+});
+
 export const responseSchema = z.object({
   questionId: z.number().int(),
   answer: z.string().optional(),
@@ -38,7 +42,7 @@ export const clickFrequencySchema = z.object({
   headerClicks: z.number().int().nonnegative().optional(),
   integrityClicks: z.number().int().nonnegative().optional(),
   stressClicks: z.number().int().nonnegative().optional(),
-  questionPanelClicks: z.number().int().nonnegative().optional(),
+  panelClicks: z.number().int().nonnegative().optional(),
   stressLevel: z.number().int().min(0).max(10).optional(),
   questionClicks: z.number().int().nonnegative().optional(),
   footerClicks: z.number().int().nonnegative().optional(),

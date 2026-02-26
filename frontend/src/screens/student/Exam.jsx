@@ -72,7 +72,7 @@ const StudentExam = () => {
     header: 0,
     integrity: 0,
     stress: 0,
-    questionPanel: 0,
+    panel: 0,
     question: 0,
     footer: 0,
     other: 0,
@@ -143,7 +143,7 @@ const StudentExam = () => {
         header: 0,
         integrity: 0,
         stress: 0,
-        questionPanel: 0,
+        panel: 0,
         question: 0,
         footer: 0,
         other: 0,
@@ -156,7 +156,7 @@ const StudentExam = () => {
         headerClicks: sectionClicks.header,
         integrityClicks: sectionClicks.integrity,
         stressClicks: sectionClicks.stress,
-        questionPanelClicks: sectionClicks.questionPanel,
+        panelClicks: sectionClicks.panel,
         stressLevel: stress,
         questionClicks: sectionClicks.question,
         footerClicks: sectionClicks.footer,
@@ -236,11 +236,37 @@ const StudentExam = () => {
     }
   }, [sessionData, sessionId, submitted, forcedExitModal.visible, exitFullscreen, router]);
 
+  useEffect(
+    () => () => {
+      exitFullscreen();
+    },
+    [exitFullscreen],
+  );
+
+  useEffect(() => {
+    if (enforcementActive) {
+      enforcementStartRef.current = Date.now();
+      hasFullscreenRef.current = Boolean(
+        typeof document !== "undefined" && document.fullscreenElement,
+      );
+      requestFullscreen();
+    }
+  }, [enforcementActive, requestFullscreen]);
+
   useEffect(() => {
     if (!enforcementActive) {
-      return;
+      if (clickTimerRef.current) {
+        clearInterval(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+      clickWindowStartRef.current = null;
+      clickCountRef.current = 0;
+      clickQueueRef.current = [];
+      hasFullscreenRef.current = false;
+      return undefined;
     }
 
+    clickWindowStartRef.current = new Date();
     clickTimerRef.current = window.setInterval(() => {
       closeCurrentWindow().catch(() => {
         setStatus("Unable to sync click data. Retrying automatically.");
@@ -565,37 +591,12 @@ const StudentExam = () => {
         </div>
       </div>
 
-      <div
-        className={`card exam-stress stress-${
-          stress <= 1 ? "low" : stress >= 9 ? "high" : "mid"
-        }`}
-        data-section="stress"
-      >
-        <div className="stress-header">
-          <div>
-            <div className="stress-title">Question Difficulty</div>
-            <div className="stress-value">{stressLabel}</div>
-          </div>
-          <div className="stress-pill">{stress}/10</div>
-        </div>
-        <input
-          className="stress-range"
-          type="range"
-          min="0"
-          max="10"
-          value={stress}
-          onChange={(e) => handleStress(e.target.value)}
-          disabled={submitted}
-        />
-        <div className="stress-scale">
-          <span>0</span>
-          <span>5</span>
-          <span>10</span>
-        </div>
-      </div>
-
       <div className="exam-layout">
-        <aside className="card question-panel" aria-label="Questions">
+        <aside
+          className="card question-panel"
+          aria-label="Questions"
+          data-section="panel"
+        >
           <div className="question-panel-header">
             <h3>Questions</h3>
             <span className="question-count">{questions.length}</span>
@@ -623,6 +624,35 @@ const StudentExam = () => {
         </aside>
 
         <div className="exam-main">
+          <div
+            className={`card exam-stress stress-${
+              stress <= 1 ? "low" : stress >= 9 ? "high" : "mid"
+            }`}
+            data-section="stress"
+          >
+            <div className="stress-header">
+              <div>
+                <div className="stress-title">Question Difficulty</div>
+                <div className="stress-value">{stressLabel}</div>
+              </div>
+              <div className="stress-pill">{stress}/10</div>
+            </div>
+            <input
+              className="stress-range"
+              type="range"
+              min="0"
+              max="10"
+              value={stress}
+              onChange={(e) => handleStress(e.target.value)}
+              disabled={submitted}
+            />
+            <div className="stress-scale">
+              <span>0</span>
+              <span>5</span>
+              <span>10</span>
+            </div>
+          </div>
+
           <div className="card" data-section="question">
             <h3 className="question-title">
               Question {currentQuestionIndex + 1}.

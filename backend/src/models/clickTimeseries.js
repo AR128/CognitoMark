@@ -10,7 +10,7 @@ const clickTimeseriesSchema = new mongoose.Schema(
     header_clicks: { type: Number, default: 0, min: 0 },
     integrity_clicks: { type: Number, default: 0, min: 0 },
     stress_clicks: { type: Number, default: 0, min: 0 },
-    question_panel_clicks: { type: Number, default: 0, min: 0 },
+    panel_clicks: { type: Number, default: 0, min: 0 },
     stress_level: { type: Number, default: 0, min: 0, max: 10 },
     question_clicks: { type: Number, default: 0, min: 0 },
     footer_clicks: { type: Number, default: 0, min: 0 },

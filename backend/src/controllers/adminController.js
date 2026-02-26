@@ -281,10 +281,51 @@ export const getDashboardLive = async (req, res, next) => {
           },
         },
         {
+          $lookup: {
+            from: "questions",
+            let: { examId: "$session.exam_id" },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$exam_id", "$$examId"] } } },
+              { $sort: { order: 1, created_at: 1 } },
+              { $project: { _id: 0, id: 1 } },
+            ],
+            as: "exam_questions",
+          },
+        },
+        {
           $addFields: {
             student: { $first: "$student" },
             exam: { $first: "$exam" },
             question: { $first: "$question" },
+            question_number: {
+              $let: {
+                vars: {
+                  questionIds: {
+                    $map: {
+                      input: "$exam_questions",
+                      as: "q",
+                      in: "$$q.id",
+                    },
+                  },
+                },
+                in: {
+                  $let: {
+                    vars: {
+                      index: {
+                        $indexOfArray: ["$$questionIds", "$question_id"],
+                      },
+                    },
+                    in: {
+                      $cond: [
+                        { $gte: ["$$index", 0] },
+                        { $add: ["$$index", 1] },
+                        null,
+                      ],
+                    },
+                  },
+                },
+              },
+            },
           },
         },
         {
@@ -296,6 +337,7 @@ export const getDashboardLive = async (req, res, next) => {
             click_count: 1,
             question_id: 1,
             question_text: "$question.text",
+            question_number: 1,
             student_id: "$student.student_id",
             name: "$student.name",
             exam_title: "$exam.title",
@@ -471,8 +513,30 @@ export const getExamQuestions = async (req, res, next) => {
     }
     const items = await questions()
       .find({ exam_id: examId }, { _id: 0 })
-      .sort({ created_at: -1 })
+      .sort({ order: 1, created_at: 1 })
       .lean();
+
+    if (items.some((q) => !Number.isFinite(q.order))) {
+      const resequenced = [...items].sort((a, b) => {
+        const aTime = new Date(a.created_at || 0).getTime();
+        const bTime = new Date(b.created_at || 0).getTime();
+        return aTime - bTime;
+      });
+      const bulkUpdates = resequenced.map((q, index) => ({
+        updateOne: {
+          filter: { id: q.id },
+          update: { $set: { order: index + 1 } },
+        },
+      }));
+      if (bulkUpdates.length) {
+        await questions().bulkWrite(bulkUpdates, { ordered: false });
+      }
+      const refreshed = await questions()
+        .find({ exam_id: examId }, { _id: 0 })
+        .sort({ order: 1, created_at: 1 })
+        .lean();
+      return res.json(refreshed.map((q) => ({ ...q, options: q.options || [] })));
+    }
     return res.json(items.map((q) => ({ ...q, options: q.options || [] })));
   } catch (error) {
     return next(error);
@@ -497,6 +561,18 @@ export const createQuestion = async (req, res, next) => {
         });
       }
     }
+    const lastOrderRow = await questions()
+      .find({ exam_id: Number(examId) })
+      .sort({ order: -1, created_at: -1 })
+      .limit(1)
+      .select({ order: 1, _id: 0 })
+      .lean();
+    const lastOrder = lastOrderRow?.[0]?.order;
+    const fallbackCount = await questions().countDocuments({
+      exam_id: Number(examId),
+    });
+    const nextOrder = (Number.isFinite(lastOrder) ? lastOrder : fallbackCount) + 1;
+
     const question = {
       id,
       exam_id: Number(examId),
@@ -504,6 +580,7 @@ export const createQuestion = async (req, res, next) => {
       type,
       options: Array.isArray(options) ? options : [],
       correct_answer: trimmedCorrect || null,
+      order: nextOrder,
       created_at: new Date(),
     };
 
@@ -525,6 +602,11 @@ export const deleteQuestion = async (req, res, next) => {
       return res.status(400).json({ error: "Invalid question id" });
     }
 
+    const existing = await questions().findOne({ id: questionId }).lean();
+    if (!existing) {
+      return res.status(404).json({ error: "Question not found" });
+    }
+
     const result = await questions().deleteOne({ id: questionId });
     if (!result.deletedCount) {
       return res.status(404).json({ error: "Question not found" });
@@ -533,7 +615,60 @@ export const deleteQuestion = async (req, res, next) => {
     await responses().deleteMany({ question_id: questionId });
     await clickTimeseries().deleteMany({ question_id: questionId });
 
-    getIo().emit("question_deleted", { questionId });
+    const remaining = await questions()
+      .find({ exam_id: existing.exam_id })
+      .sort({ order: 1, created_at: 1 })
+      .select({ id: 1, _id: 0 })
+      .lean();
+    if (remaining.length) {
+      const bulkUpdates = remaining.map((q, index) => ({
+        updateOne: {
+          filter: { id: q.id },
+          update: { $set: { order: index + 1 } },
+        },
+      }));
+      await questions().bulkWrite(bulkUpdates, { ordered: false });
+    }
+
+    getIo().emit("question_deleted", { questionId, examId: existing.exam_id });
+    return res.json({ success: true });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const updateQuestionOrder = async (req, res, next) => {
+  try {
+    const examId = toNumber(req.params.id);
+    if (!examId) {
+      return res.status(400).json({ error: "Invalid exam id" });
+    }
+
+    const { orderedIds } = req.body;
+    if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+      return res.status(400).json({ error: "Invalid question order" });
+    }
+
+    const existing = await questions()
+      .find({ exam_id: examId })
+      .select({ id: 1, _id: 0 })
+      .lean();
+    const existingIds = new Set(existing.map((q) => q.id));
+    const validIds = orderedIds.filter((id) => existingIds.has(id));
+
+    if (validIds.length !== existing.length) {
+      return res.status(400).json({ error: "Question order does not match exam" });
+    }
+
+    const bulkUpdates = validIds.map((id, index) => ({
+      updateOne: {
+        filter: { id },
+        update: { $set: { order: index + 1 } },
+      },
+    }));
+
+    await questions().bulkWrite(bulkUpdates, { ordered: false });
+    getIo().emit("question_reordered", { examId });
     return res.json({ success: true });
   } catch (error) {
     return next(error);
@@ -971,7 +1106,7 @@ export const getSessionDetail = async (req, res, next) => {
                   header_clicks: { $sum: "$header_clicks" },
                   integrity_clicks: { $sum: "$integrity_clicks" },
                   stress_clicks: { $sum: "$stress_clicks" },
-                  question_panel_clicks: { $sum: "$question_panel_clicks" },
+                  panel_clicks: { $sum: "$panel_clicks" },
                   avg_stress_level: { $avg: "$stress_level" },
                   question_clicks: { $sum: "$question_clicks" },
                   footer_clicks: { $sum: "$footer_clicks" },
@@ -1002,9 +1137,7 @@ export const getSessionDetail = async (req, res, next) => {
               $ifNull: ["$click_stats.integrity_clicks", 0],
             },
             stress_clicks: { $ifNull: ["$click_stats.stress_clicks", 0] },
-            question_panel_clicks: {
-              $ifNull: ["$click_stats.question_panel_clicks", 0],
-            },
+            panel_clicks: { $ifNull: ["$click_stats.panel_clicks", 0] },
             avg_stress_level: {
               $ifNull: ["$click_stats.avg_stress_level", 0],
             },

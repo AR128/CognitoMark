@@ -35,6 +35,7 @@ const questionSchema = new mongoose.Schema(
         message: "Correct answer must match an MCQ option.",
       },
     },
+    order: { type: Number, default: null, min: 1 },
     created_at: { type: Date },
     updated_at: { type: Date },
   },

@@ -7,6 +7,8 @@ export const createExam = (payload) => api.post("/api/admin/exams", payload);
 export const deleteExam = (id) => api.delete(`/api/admin/exams/${id}`);
 export const fetchQuestions = (examId) =>
   api.get(`/api/admin/exams/${examId}/questions`);
+export const updateQuestionOrder = (examId, orderedIds) =>
+  api.put(`/api/admin/exams/${examId}/questions/order`, { orderedIds });
 export const createQuestion = (payload) => api.post("/api/admin/questions", payload);
 export const deleteQuestion = (id) => api.delete(`/api/admin/questions/${id}`);
 export const fetchStudents = () => api.get("/api/admin/students");
