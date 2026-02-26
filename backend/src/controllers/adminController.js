@@ -1273,6 +1273,93 @@ export const getSessionDetail = async (req, res, next) => {
       ])
       .exec();
 
+    const answerSwitchEvents = await telemetry()
+      .find({ session_id: sessionId, type: "ANSWER_SWITCH" })
+      .select({ _id: 0, question_id: 1, value: 1, created_at: 1 })
+      .sort({ created_at: 1 })
+      .lean();
+
+    const answerSelectionEvents = await telemetry()
+      .find({ session_id: sessionId, type: "ANSWER_SELECTED" })
+      .select({ _id: 0, question_id: 1, value: 1, created_at: 1 })
+      .sort({ created_at: 1 })
+      .lean();
+
+    const answerSwitchesByQuestion = answerSwitchEvents.reduce((acc, event) => {
+      const questionId = event.question_id;
+      if (!Number.isFinite(questionId)) {
+        return acc;
+      }
+      let payload = null;
+      if (event.value) {
+        try {
+          payload = JSON.parse(event.value);
+        } catch {
+          payload = null;
+        }
+      }
+      const from = typeof payload?.from === "string" ? payload.from : null;
+      const to = typeof payload?.to === "string" ? payload.to : null;
+      if (!from || !to) {
+        return acc;
+      }
+      if (!acc[questionId]) {
+        acc[questionId] = [];
+      }
+      acc[questionId].push({ from, to, at: event.created_at || null });
+      return acc;
+    }, {});
+
+    const answerSelectionsByQuestion = answerSelectionEvents.reduce(
+      (acc, event) => {
+        const questionId = event.question_id;
+        if (!Number.isFinite(questionId)) {
+          return acc;
+        }
+        let payload = null;
+        if (event.value) {
+          try {
+            payload = JSON.parse(event.value);
+          } catch {
+            payload = null;
+          }
+        }
+        const answer =
+          typeof payload?.answer === "string" ? payload.answer : null;
+        if (!answer) {
+          return acc;
+        }
+        if (!acc[questionId]) {
+          acc[questionId] = [];
+        }
+        acc[questionId].push({ answer, at: event.created_at || null });
+        return acc;
+      },
+      {},
+    );
+
+    const derivedSwitchesByQuestion = Object.entries(
+      answerSelectionsByQuestion,
+    ).reduce((acc, [questionId, selections]) => {
+      let lastAnswer = null;
+      const switches = [];
+      selections.forEach((entry) => {
+        const currentAnswer = entry.answer;
+        if (lastAnswer !== null && currentAnswer !== lastAnswer) {
+          switches.push({
+            from: lastAnswer,
+            to: currentAnswer,
+            at: entry.at || null,
+          });
+        }
+        lastAnswer = currentAnswer;
+      });
+      if (switches.length) {
+        acc[questionId] = switches;
+      }
+      return acc;
+    }, {});
+
     const violations = await telemetry()
       .find({ session_id: sessionId, type: { $in: VIOLATION_TYPES } })
       .select({ _id: 0, question_id: 1, created_at: 1, value: 1 })
@@ -1346,6 +1433,15 @@ export const getSessionDetail = async (req, res, next) => {
         next_clicks: navigationCounts[r.question_id]?.next || 0,
         violation_count: violationCounts[r.question_id] || 0,
         options: r.options || [],
+        answer_selections: answerSelectionsByQuestion[r.question_id] || [],
+        answer_switches:
+          derivedSwitchesByQuestion[r.question_id] ||
+          answerSwitchesByQuestion[r.question_id] ||
+          [],
+        total_switches:
+          derivedSwitchesByQuestion[r.question_id]?.length ||
+          answerSwitchesByQuestion[r.question_id]?.length ||
+          0,
       })),
       navigationTransitions,
     });

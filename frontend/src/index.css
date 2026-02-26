@@ -220,6 +220,26 @@ select option {
   min-width: 720px;
 }
 
+.table-wrap.compact {
+  overflow-x: hidden;
+}
+
+.table-wrap.compact .table {
+  min-width: 0;
+  table-layout: auto;
+}
+
+.table-wrap.compact th,
+.table-wrap.compact td {
+  white-space: nowrap;
+}
+
+.table.compact-time th:last-child,
+.table.compact-time td:last-child {
+  white-space: normal;
+  line-height: 1.3;
+}
+
 .sessions-header {
   display: flex;
   align-items: center;

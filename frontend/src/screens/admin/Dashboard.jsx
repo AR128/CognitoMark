@@ -270,38 +270,6 @@ const AdminDashboard = () => {
           </table>
         </div>
       </div>
-
-      <div className="card" style={{ marginTop: 16 }}>
-        <h3>Top Question Transitions</h3>
-        {topTransitions.length === 0 ? (
-          <div className="feed-item">No transitions recorded yet</div>
-        ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>From #</th>
-                  <th>To #</th>
-                  <th>Direction</th>
-                  <th>Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topTransitions.map((row, idx) => (
-                  <tr
-                    key={`${row.from_question_id}-${row.to_question_id}-${row.direction}-${idx}`}
-                  >
-                    <td>{row.from_question_number ?? row.from_question_id ?? "-"}</td>
-                    <td>{row.to_question_number ?? row.to_question_id ?? "-"}</td>
-                    <td>{row.direction}</td>
-                    <td>{row.count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   );
 };

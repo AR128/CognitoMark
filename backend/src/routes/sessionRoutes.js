@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { validate } from "../middlewares/validate.js";
 import {
+  answerSelectionSchema,
   clickFrequencySchema,
   clicksSchema,
   navigationSchema,
@@ -11,6 +12,7 @@ import {
 } from "../utils/validators.js";
 import {
   getClickSeries,
+  logAnswerSelection,
   logClickFrequency,
   logNavigation,
   logViolation,
@@ -23,6 +25,11 @@ import {
 const router = Router();
 
 router.post("/sessions/:sessionId/response", validate(responseSchema), saveResponse);
+router.post(
+  "/sessions/:sessionId/answer-selection",
+  validate(answerSelectionSchema),
+  logAnswerSelection
+);
 router.post("/sessions/:sessionId/clicks", validate(clicksSchema), updateClicks);
 router.post(
   "/sessions/:sessionId/click-frequency",

@@ -3,6 +3,9 @@ import api from "./client";
 export const saveResponse = (sessionId, payload) =>
   api.post(`/api/sessions/${sessionId}/response`, payload);
 
+export const logAnswerSelection = (sessionId, payload) =>
+  api.post(`/api/sessions/${sessionId}/answer-selection`, payload);
+
 export const updateClicks = (sessionId, payload) =>
   api.post(`/api/sessions/${sessionId}/clicks`, payload);
 
