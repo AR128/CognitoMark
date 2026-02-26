@@ -45,6 +45,14 @@ const insertTelemetryEvent = async (sessionId, type, value, meta = {}) => {
     payload.direction = meta.direction;
   }
 
+  if (Number.isFinite(meta.fromQuestionNumber)) {
+    payload.from_question_number = meta.fromQuestionNumber;
+  }
+
+  if (Number.isFinite(meta.toQuestionNumber)) {
+    payload.to_question_number = meta.toQuestionNumber;
+  }
+
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const id = await getNextSequence("telemetry_events");
@@ -259,6 +267,7 @@ export const logClickFrequency = async (req, res, next) => {
       headerClicks,
       integrityClicks,
       stressClicks,
+      questionPanelClicks,
       stressLevel,
       questionClicks,
       footerClicks,
@@ -314,6 +323,7 @@ export const logClickFrequency = async (req, res, next) => {
       header_clicks: headerClicks || 0,
       integrity_clicks: integrityClicks || 0,
       stress_clicks: stressClicks || 0,
+      question_panel_clicks: questionPanelClicks || 0,
       stress_level: Number.isFinite(Number(stressLevel))
         ? Number(stressLevel)
         : 0,
@@ -331,6 +341,7 @@ export const logClickFrequency = async (req, res, next) => {
       headerClicks,
       integrityClicks,
       stressClicks,
+      questionPanelClicks,
       questionClicks,
       footerClicks,
       otherClicks,
@@ -354,11 +365,19 @@ export const logClickFrequency = async (req, res, next) => {
 export const logNavigation = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
-    const { fromQuestionId, toQuestionId, direction } = req.body;
+    const {
+      fromQuestionId,
+      toQuestionId,
+      direction,
+      fromQuestionNumber,
+      toQuestionNumber,
+    } = req.body;
 
     const parsedSessionId = toNumber(sessionId);
     const parsedFromQuestionId = toNumber(fromQuestionId);
     const parsedToQuestionId = toNumber(toQuestionId);
+    const parsedFromQuestionNumber = toNumber(fromQuestionNumber);
+    const parsedToQuestionNumber = toNumber(toQuestionNumber);
 
     if (!parsedSessionId || !parsedFromQuestionId || !parsedToQuestionId) {
       return res.status(400).json({ error: "Invalid navigation payload" });
@@ -380,12 +399,16 @@ export const logNavigation = async (req, res, next) => {
         fromQuestionId: parsedFromQuestionId,
         toQuestionId: parsedToQuestionId,
         direction,
+        fromQuestionNumber: parsedFromQuestionNumber,
+        toQuestionNumber: parsedToQuestionNumber,
         occurredAt: new Date().toISOString(),
       },
       {
         questionId: parsedFromQuestionId,
         toQuestionId: parsedToQuestionId,
         direction,
+        fromQuestionNumber: parsedFromQuestionNumber,
+        toQuestionNumber: parsedToQuestionNumber,
       },
     );
 

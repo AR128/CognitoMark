@@ -6,6 +6,8 @@ const telemetryEventSchema = new mongoose.Schema(
     session_id: { type: Number, required: true, min: 1 },
     question_id: { type: Number, default: null, min: 1 },
     to_question_id: { type: Number, default: null, min: 1 },
+    from_question_number: { type: Number, default: null, min: 1 },
+    to_question_number: { type: Number, default: null, min: 1 },
     type: { type: String, required: true },
     direction: {
       type: String,

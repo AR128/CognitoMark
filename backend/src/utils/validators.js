@@ -38,6 +38,7 @@ export const clickFrequencySchema = z.object({
   headerClicks: z.number().int().nonnegative().optional(),
   integrityClicks: z.number().int().nonnegative().optional(),
   stressClicks: z.number().int().nonnegative().optional(),
+  questionPanelClicks: z.number().int().nonnegative().optional(),
   stressLevel: z.number().int().min(0).max(10).optional(),
   questionClicks: z.number().int().nonnegative().optional(),
   footerClicks: z.number().int().nonnegative().optional(),
@@ -61,6 +62,8 @@ export const navigationSchema = z.object({
   fromQuestionId: z.number().int(),
   toQuestionId: z.number().int(),
   direction: z.enum(["next", "previous"]),
+  fromQuestionNumber: z.number().int().min(1).optional(),
+  toQuestionNumber: z.number().int().min(1).optional(),
 });
 
 export const resetSchema = z.object({

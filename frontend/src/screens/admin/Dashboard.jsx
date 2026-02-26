@@ -191,10 +191,6 @@ const AdminDashboard = () => {
                   <th>Exam</th>
                   <th>Total Clicks</th>
                   <th>Avg Stress</th>
-                  <th>Prev</th>
-                  <th>Next</th>
-                  <th>Latest Answer</th>
-                  <th>Latest Question</th>
                   <th>Violations</th>
                   <th>Started</th>
                   <th>Submitted</th>
@@ -213,10 +209,6 @@ const AdminDashboard = () => {
                     <td>{s.exam_title}</td>
                     <td>{s.total_clicks}</td>
                     <td>{Number(s.avg_stress_level || 0).toFixed(2)}</td>
-                    <td>{s.prev_clicks || 0}</td>
-                    <td>{s.next_clicks || 0}</td>
-                    <td>{s.latest_answer || "-"}</td>
-                    <td>{s.latest_question_text || "-"}</td>
                     <td>
                       {s.violation_count > 0 ? (
                         <span className="badge">
@@ -288,8 +280,8 @@ const AdminDashboard = () => {
             <table className="table">
               <thead>
                 <tr>
-                  <th>From</th>
-                  <th>To</th>
+                  <th>From #</th>
+                  <th>To #</th>
                   <th>Direction</th>
                   <th>Count</th>
                 </tr>
@@ -299,8 +291,8 @@ const AdminDashboard = () => {
                   <tr
                     key={`${row.from_question_id}-${row.to_question_id}-${row.direction}-${idx}`}
                   >
-                    <td>{row.from_question_text || row.from_question_id}</td>
-                    <td>{row.to_question_text || row.to_question_id}</td>
+                    <td>{row.from_question_number ?? row.from_question_id ?? "-"}</td>
+                    <td>{row.to_question_number ?? row.to_question_id ?? "-"}</td>
                     <td>{row.direction}</td>
                     <td>{row.count}</td>
                   </tr>

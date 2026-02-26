@@ -77,6 +77,7 @@ const SessionDetail = () => {
       "Total Clicks",
       "Header",
       "Stress Bar",
+      "Question Panel",
       "Question Clicks",
       "Prev",
       "Next",
@@ -93,6 +94,7 @@ const SessionDetail = () => {
       r.click_count,
       r.header_clicks,
       r.stress_clicks,
+      r.question_panel_clicks || 0,
       r.question_clicks,
       r.prev_clicks || 0,
       r.next_clicks || 0,
@@ -100,14 +102,14 @@ const SessionDetail = () => {
     ]);
 
     const navigationHeaders = [
-      "From Question",
-      "To Question",
+      "From Question #",
+      "To Question #",
       "Direction",
       "Count",
     ];
     const navigationRows = navigationTransitions.map((row) => [
-      row.from_question_text || row.from_question_id,
-      row.to_question_text || row.to_question_id,
+      row.from_question_number ?? row.from_question_id ?? "",
+      row.to_question_number ?? row.to_question_id ?? "",
       row.direction,
       row.count,
     ]);
@@ -330,6 +332,7 @@ const SessionDetail = () => {
                   >
                     <span>Header: {r.header_clicks}</span>
                     <span>Stress Bar: {r.stress_clicks}</span>
+                    <span>Question Panel: {r.question_panel_clicks || 0}</span>
                     <span>Question: {r.question_clicks}</span>
                     <span>Navigation: {r.footer_clicks}</span>
                     <span>Other: {r.other_clicks}</span>
@@ -355,8 +358,8 @@ const SessionDetail = () => {
             <table className="table">
               <thead>
                 <tr>
-                  <th>From</th>
-                  <th>To</th>
+                  <th>From #</th>
+                  <th>To #</th>
                   <th>Direction</th>
                   <th>Count</th>
                 </tr>
@@ -366,8 +369,8 @@ const SessionDetail = () => {
                   <tr
                     key={`${row.from_question_id}-${row.to_question_id}-${row.direction}-${idx}`}
                   >
-                    <td>{row.from_question_text || row.from_question_id}</td>
-                    <td>{row.to_question_text || row.to_question_id}</td>
+                    <td>{row.from_question_number ?? row.from_question_id ?? "-"}</td>
+                    <td>{row.to_question_number ?? row.to_question_id ?? "-"}</td>
                     <td>{row.direction}</td>
                     <td>{row.count}</td>
                   </tr>
