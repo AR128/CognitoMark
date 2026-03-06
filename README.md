@@ -11,27 +11,62 @@ A state-of-the-art, real-time examination platform with advanced telemetry, gran
 
 ## 🏛️ Project Structure
 
-This repository is organized as a monorepo containing both the frontend and backend components.
+This repository is organized as a mono repo containing both the frontend and backend components.
 
-| Directory | Description | Documentation |
-| :--- | :--- | :--- |
+| Directory                 | Description                                  | Documentation                           |
+| :------------------------ | :------------------------------------------- | :-------------------------------------- |
 | [`frontend/`](./frontend) | Next.js application for students and admins. | [Frontend README](./frontend/README.md) |
-| [`backend/`](./backend) | Express.js server and MongoDB integration. | [Backend README](./backend/README.md) |
+| [`backend/`](./backend)   | Express.js server and MongoDB integration.   | [Backend README](./backend/README.md)   |
+
+---
+
+## 📊 Total System Architecture
+
+```mermaid
+graph TB
+    subgraph "Frontend Layer (React/Next.js)"
+        SF[Student Frontend]
+        AD[Admin Dashboard]
+    end
+
+    subgraph "Backend Layer (Node.js/Express)"
+        API[REST API]
+        SIO[Socket.IO Server]
+    end
+
+    subgraph "Data Layer (MongoDB)"
+        DB[(Database)]
+    end
+
+    SF <-->|HTTP/JSON| API
+    SF <-->|Real-time Events| SIO
+    AD <-->|HTTP/JSON| API
+    AD <-->|Real-time Updates| SIO
+
+    API <-->|Mongoose| DB
+    SIO <-->|Telemetry Stream| DB
+
+    SF -- Telemetry --> SIO
+    SIO -- Live Updates --> AD
+```
 
 ---
 
 ## 🚀 Key Features
 
 ### 📡 Real-Time Administration
+
 - **Live Updates**: Instant notification of student registrations and submissions via Socket.IO.
 - **Dynamic Dashboard**: Real-time refreshing of Students and Sessions tabs.
 
 ### 🖱️ Advanced Telemetry & Tracking
+
 - **High-Fidelity Click Tracking**: Captures all user clicks across the entire session.
 - **Integrity Monitor**: Detection of tab switching and window minimizing.
 - **Fullscreen Enforcement**: Auto-enters fullscreen for exams.
 
 ### 💎 Premium User Experience
+
 - **Vibrant UI**: Sleek dark mode with glassmorphism effects.
 - **Responsive Navigation**: Collapsible sidebar with high-quality micro-animations.
 
@@ -42,13 +77,16 @@ This repository is organized as a monorepo containing both the frontend and back
 To get the entire system running locally, follow these steps:
 
 ### 1. Clone the repository
+
 ```bash
 git clone https://github.com/your-repo/CognitoMark.git
 cd CognitoMark
 ```
 
 ### 2. Setup Backend
+
 Detailed instructions in [backend/README.md](./backend/README.md).
+
 ```bash
 cd backend
 npm install
@@ -56,7 +94,9 @@ npm run dev
 ```
 
 ### 3. Setup Frontend
+
 Detailed instructions in [frontend/README.md](./frontend/README.md).
+
 ```bash
 cd frontend
 npm install
