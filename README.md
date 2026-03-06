@@ -1,129 +1,67 @@
-# 🎓 High-Fidelity Exam Portal
+# 🎓 CognitoMark: High-Fidelity Exam Portal
 
 A state-of-the-art, real-time examination platform with advanced telemetry, granular behavior tracking, and a premium administrative dashboard. Built for reliability, precision, and a seamless user experience.
+
+![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
+![Express.js](https://img.shields.io/badge/Express.js-000000?style=for-the-badge&logo=express&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
+![Socket.io](https://img.shields.io/badge/Socket.io-010101?style=for-the-badge&logo=socket.io&logoColor=white)
+
+---
+
+## 🏛️ Project Structure
+
+This repository is organized as a monorepo containing both the frontend and backend components.
+
+| Directory | Description | Documentation |
+| :--- | :--- | :--- |
+| [`frontend/`](./frontend) | Next.js application for students and admins. | [Frontend README](./frontend/README.md) |
+| [`backend/`](./backend) | Express.js server and MongoDB integration. | [Backend README](./backend/README.md) |
 
 ---
 
 ## 🚀 Key Features
 
 ### 📡 Real-Time Administration
-
-- **Live Updates**: Instant notification of student registrations, exam starts, and submissions via Socket.IO.
-- **Dynamic Dashboard**: Real-time refreshing of the Students and Sessions tabs without manual reloads.
-- **Empty States**: Clean, user-friendly messages for a polished look when data is empty.
-- **Navigation Insights**: Live tracking of Previous/Next transitions per question.
-- **Reset Workflow**: Admin can reset session data from the dashboard with password confirmation (exams and questions are preserved).
+- **Live Updates**: Instant notification of student registrations and submissions via Socket.IO.
+- **Dynamic Dashboard**: Real-time refreshing of Students and Sessions tabs.
 
 ### 🖱️ Advanced Telemetry & Tracking
-
-- **High-Fidelity Click Tracking**: Captures all user clicks across the entire session, including background clicks.
-- **Granular Categorization**: Clicks are automatically logged into specific sections: Header, Integrity Monitoring, Stress Bar, Question Area, and Navigation.
-- **Sequential Answering**: Enforced logical flow where students must answer the current question to proceed.
-- **Integrity Monitor**: Real-time detection of tab switching, window minimizing, and fullscreen exits with a configurable violation threshold.
-- **Fullscreen Enforcement**: The /exam page auto-enters fullscreen and logs exits as violations.
+- **High-Fidelity Click Tracking**: Captures all user clicks across the entire session.
+- **Integrity Monitor**: Detection of tab switching and window minimizing.
+- **Fullscreen Enforcement**: Auto-enters fullscreen for exams.
 
 ### 💎 Premium User Experience
-
-- **Vibrant UI**: Sleek dark mode with glassmorphism effects and modern typography.
-- **Custom Components**: Premium confirmation modals and designer dropdowns replacing standard browser defaults.
+- **Vibrant UI**: Sleek dark mode with glassmorphism effects.
 - **Responsive Navigation**: Collapsible sidebar with high-quality micro-animations.
-- **CSV Exports**: Session and per-question exports in CSV format.
-
-### 🛠️ Technical Stack
-
-- **Frontend**: Next.js 16 (Turbopack), React 19, Socket.IO Client, Axios.
-- **Backend**: Express.js, Socket.IO, Mongoose ODM, JWT Authentication.
-- **Database**: MongoDB with Mongoose models and high-precision timeseries logging.
-
----
-
-## ✅ Scoring & Evaluation
-
-- **Admin Answer Key**: Admins store a correct answer per question (MCQ or text).
-- **Auto Scoring**: On submission, each response is scored and stored.
-- **Per-Question Result**: Each answer is marked correct or wrong in the session detail view.
-- **Session Score**: Total score is stored and displayed in the admin response page.
-
----
-
-## 📂 Project Structure
-
-| Directory                 | Description                                                  |
-| :------------------------ | :----------------------------------------------------------- |
-| `frontend/src/app`        | Next.js App Router pages and layouts.                        |
-| `frontend/src/screens`    | Core view components (Student Login, Exam, Admin Dashboard). |
-| `frontend/src/components` | Reusable UI (ConfirmModal, Sidebar, ProtectedRoute).         |
-| `frontend/src/api`        | API client wrappers for frontend-backend communication.      |
-| `backend/src/controllers` | Business logic for exams, students, and administration.      |
-| `backend/src/db`          | Database bootstrap and high-fidelity timeseries logs.        |
-| `backend/src/sockets`     | Real-time event orchestration.                               |
 
 ---
 
 ## 🛠️ Getting Started
 
-### Prerequisites
+To get the entire system running locally, follow these steps:
 
-- Node.js (v24.12+)
-- npm / pnpm / yarn
-
-### Installation
-
-1. **Clone the repository**
-2. **Setup Backend**
-   ```bash
-   cd backend
-   npm install
-   # Create a .env file based on .env.example
-   npm run dev
-   ```
-
-3. **Setup Frontend**
-   ```bash
-   cd frontend
-   npm install
-   # Create a .env file based on .env.example
-   npm run dev
-   ```
-
-### Environment Variables
-
-#### Backend (`backend/.env`)
-
-- `PORT`: Server port (default: 5000)
-- `JWT_SECRET`: Security key for admin authentication
-- `CLIENT_ORIGIN`: Frontend URL for CORS (e.g., http://localhost:3000)
-- `MONGODB_URI`: MongoDB connection string
-
-#### Frontend (`frontend/.env`)
-
-- `NEXT_PUBLIC_API_URL`: Backend API endpoint
-- `NEXT_PUBLIC_SOCKET_URL`: Backend Socket.IO endpoint
-
----
-
-## 📊 Way of Working: Telemetry Flow
-
-```mermaid
-graph TD
-    A[Student Selects Exam] --> B[Session Initialized]
-    B --> C[Question Rendered]
-    C -->|User Interaction| D{Click Captured}
-    D -->|Coordinate Check| E[Section Categorized]
-    E -->|Buffering| F[Timeseries DB Log]
-    F -->|Socket Emission| G[Admin Dashboard Refresh]
-    C -->|Violation| H[Integrity Guard]
-    H -->|Forced Exit| I[Exam Auto-Submission]
+### 1. Clone the repository
+```bash
+git clone https://github.com/your-repo/CognitoMark.git
+cd CognitoMark
 ```
 
----
+### 2. Setup Backend
+Detailed instructions in [backend/README.md](./backend/README.md).
+```bash
+cd backend
+npm install
+npm run dev
+```
 
-## 🛡️ Security & Integrity
-
-- **JWT Protection**: All admin routes are secured via JSON Web Tokens.
-- **SSR Safety**: Robust guards for client-side storage access during Server-Side Rendering.
-- **Sequential Guard**: Backend verification ensures questions are answered in the correct order.
-- **Reset Behavior**: The admin Reset button clears students, sessions, responses, telemetry, and click series while keeping exams and questions intact.
+### 3. Setup Frontend
+Detailed instructions in [frontend/README.md](./frontend/README.md).
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
 ---
 
